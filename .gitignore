@@ -1,0 +1,18 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+venv/
+.venv/
+
+# Playwright
+test-results/
+playwright-report/
+
+# Leboncoin Automation Specific
+state.json   # <--- TRES IMPORTANT : Contient vos cookies de session (Equivalent mot de passe)
+*.log
+screenshots/
