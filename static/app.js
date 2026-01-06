@@ -5,6 +5,7 @@ let ctx = null;
 
 // DOM elements
 const startBtn = document.getElementById('start-btn');
+const stopBtn = document.getElementById('stop-btn');
 const wsIndicator = document.getElementById('ws-indicator');
 const wsStatus = document.getElementById('ws-status');
 const botStatus = document.getElementById('bot-status');
@@ -21,6 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Start button handler
     startBtn.addEventListener('click', startBot);
+
+    // Stop button handler
+    stopBtn.addEventListener('click', stopBot);
 
     // Canvas click handler (for Captcha interaction)
     canvas.addEventListener('click', handleCanvasClick);
@@ -69,6 +73,17 @@ function handleWebSocketMessage(data) {
             botStatus.textContent = data.message;
             break;
 
+        case 'bot_stopped':
+            // Reset UI when bot stops
+            botStatus.textContent = 'Bot arrêté';
+            startBtn.style.display = 'inline-block';
+            startBtn.disabled = false;
+            startBtn.textContent = '▶ DÉMARRER';
+            stopBtn.style.display = 'none';
+            stopBtn.disabled = false;
+            stopBtn.textContent = '⏹ ARRÊTER';
+            break;
+
         case 'log':
             // Display log message
             console.log('[Bot]', data.message);
@@ -100,9 +115,9 @@ function startBot() {
         return;
     }
 
-    // Disable button
-    startBtn.disabled = true;
-    startBtn.textContent = '⏳ En cours...';
+    // Toggle buttons
+    startBtn.style.display = 'none';
+    stopBtn.style.display = 'inline-block';
 
     // Send start command via WebSocket
     ws.send(JSON.stringify({
@@ -110,6 +125,24 @@ function startBot() {
     }));
 
     botStatus.textContent = 'Démarrage en cours...';
+}
+
+function stopBot() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert('WebSocket non connecté.');
+        return;
+    }
+
+    // Send stop command
+    ws.send(JSON.stringify({
+        type: 'stop'
+    }));
+
+    // Toggle buttons
+    stopBtn.disabled = true;
+    stopBtn.textContent = '⏳ Arrêt...';
+
+    botStatus.textContent = 'Arrêt du bot en cours...';
 }
 
 function handleCanvasClick(event) {

@@ -111,15 +111,46 @@ async def websocket_stream(websocket: WebSocket):
                 # Run bot in executor (thread pool) to not block WebSocket
                 loop = asyncio.get_event_loop()
                 
-                # This will run the bot synchronously in a thread
-                # For now, we'll use the simple version without streaming callback
-                # In production, we'd need to refactor bot_engine to be async-friendly
-                loop.run_in_executor(None, poster.start_process)
+                # Fonction wrapper pour nettoyer après l'exécution
+                async def run_and_notify():
+                    result = await loop.run_in_executor(None, poster.start_process)
+                    print(f"[Bot] Terminé avec résultat : {result}")
+                    
+                    # Nettoyage
+                    manager.bot_instance = None
+                    
+                    # Notifier le frontend
+                    await manager.broadcast({
+                        "type": "bot_stopped",
+                        "result": result
+                    })
+                
+                # Lancer le bot de manière asynchrone
+                asyncio.create_task(run_and_notify())
                 
                 await websocket.send_json({
                     "type": "status",
                     "message": "Bot démarré ! (Mode test - pas de streaming pour l'instant)"
                 })
+            
+            elif data.get("type") == "stop":
+                # Stop the bot
+                print("[WebSocket] Stop command received")
+                
+                if manager.bot_instance:
+                    # Set stop flag (bot will check this and close browser itself)
+                    manager.bot_instance.should_stop = True
+                    print("[WebSocket] Stop flag set - bot will terminate gracefully")
+                    
+                    await websocket.send_json({
+                        "type": "status",
+                        "message": "Arrêt demandé - le bot va se terminer..."
+                    })
+                else:
+                    await websocket.send_json({
+                        "type": "status",
+                        "message": "Aucun bot en cours d'exécution"
+                    })
                 
     except WebSocketDisconnect:
         manager.disconnect(websocket)

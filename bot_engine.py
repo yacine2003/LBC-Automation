@@ -19,15 +19,30 @@ LOGIN_URL = "https://www.leboncoin.fr/se-connecter"
 POST_AD_URL = "https://www.leboncoin.fr/deposer-une-annonce"
 COOKIE_FILE = "state.json"
 
+# Exception personnalisée pour l'arrêt du bot
+class StopBotException(Exception):
+    """Exception levée pour arrêter le bot proprement"""
+    pass
+
 class LBCPoster:
     def __init__(self):
-        self.sheet_name = "LBC-Automation" 
+        self.sheet_name = "LBC-Automation"
+        self.should_stop = False  # Flag for graceful shutdown 
 
     def random_sleep(self, min_s=2.0, max_s=5.0):
-        """Pause aléatoire"""
+        """Pause aléatoire avec vérification d'arrêt"""
         duration = random.uniform(min_s, max_s)
         print(f"   [Sleep] Pause de {duration:.2f}s...")
-        time.sleep(duration)
+        
+        # Sleep par petits incréments pour vérifier should_stop fréquemment
+        elapsed = 0
+        increment = 0.5  # Vérifie toutes les 0.5s
+        while elapsed < duration:
+            if self.should_stop:
+                print("[Bot] ⏹ Arrêt demandé pendant le sleep.")
+                raise StopBotException()  # Exception personnalisée pour sortir proprement
+            time.sleep(min(increment, duration - elapsed))
+            elapsed += increment
 
     def capture_screenshot(self, page):
         """Capture screenshot et encode en base64 pour streaming"""
@@ -38,6 +53,17 @@ class LBCPoster:
         except Exception as e:
             print(f"   ! Erreur capture screenshot : {e}")
             return None
+    
+    def check_stop(self, browser):
+        """Vérifie si l'arrêt est demandé et termine proprement si oui"""
+        if self.should_stop:
+            print("[Bot] ⏹ Arrêt demandé par l'utilisateur.")
+            try:
+                browser.close()
+            except:
+                pass
+            return True
+        return False
 
     def human_type(self, page, selector, text, delay_min=0.1, delay_max=0.3):
         """Frappe au clavier humaine"""
@@ -185,71 +211,77 @@ class LBCPoster:
             except:
                 page = context.new_page()
 
-            # Navigation
-            print(f"[Nav] Vers {POST_AD_URL}")
-            page.goto(POST_AD_URL)
-            page.wait_for_load_state("domcontentloaded")
-            self.random_sleep(2, 4)
-            self.handle_cookies(page)
+            try:
+                # Navigation
+                print(f"[Nav] Vers {POST_AD_URL}")
+                page.goto(POST_AD_URL)
+                page.wait_for_load_state("domcontentloaded")
+                self.random_sleep(2, 4)
+                self.handle_cookies(page)
 
-            # Login Check
-            login_needed = False
-            if "connexion" in page.url or "login" in page.url: login_needed = True
-            
-            if not login_needed:
-                # Double check content
-                cnt = page.content()
-                if "Me connecter" in cnt or "Connectez-vous" in cnt:
-                    login_needed = True
-            
-            if login_needed:
-                print("[Login] Connexion requise...")
-                try:
-                    # On attend un peu que le header charge
-                    btn = page.locator("button, a").filter(has_text="Me connecter").first
-                    btn.wait_for(state="visible", timeout=3000)
-                    btn.click()
-                    
-                    self.perform_login(page)
-                    context.storage_state(path=COOKIE_FILE) # Save session
+                # Login Check
+                login_needed = False
+                if "connexion" in page.url or "login" in page.url: login_needed = True
+                
+                if not login_needed:
+                    # Double check content
+                    cnt = page.content()
+                    if "Me connecter" in cnt or "Connectez-vous" in cnt:
+                        login_needed = True
+                
+                if login_needed:
+                    print("[Login] Connexion requise...")
+                    try:
+                        # On attend un peu que le header charge
+                        btn = page.locator("button, a").filter(has_text="Me connecter").first
+                        btn.wait_for(state="visible", timeout=3000)
+                        btn.click()
+                        
+                        self.perform_login(page)
+                        context.storage_state(path=COOKIE_FILE) # Save session
 
-                    print("[Nav] Retour Dépôt...")
-                    page.wait_for_load_state("domcontentloaded")
-                    self.random_sleep(2, 3)
-                except:
-                    print("Could not click login button or login failed. Continuing anyway...")
-                if "deposer" not in page.url: page.goto(POST_AD_URL)
+                        print("[Nav] Retour Dépôt...")
+                        page.wait_for_load_state("domcontentloaded")
+                        self.random_sleep(2, 3)
+                    except:
+                        print("Could not click login button or login failed. Continuing anyway...")
+                    if "deposer" not in page.url: page.goto(POST_AD_URL)
 
-            # Remplissage
-            self.random_sleep(1, 2)
-            print("[Form] Remplissage Titre...")
-            
-            filled = False
-            title_txt = str(ad_data.get('Titre'))
-            
-            # Essai 1 : Input subject
-            inp = page.locator("input[name='subject']").first
-            if inp.is_visible():
-                self.human_type(page, "input[name='subject']", title_txt)
-                filled = True
-            
-            # Essai 2 : Label
-            if not filled:
-                try:
-                    page.get_by_label("titre", exact=False).first.fill(title_txt)
+                # Remplissage
+                self.random_sleep(1, 2)
+                print("[Form] Remplissage Titre...")
+                
+                filled = False
+                result = "FAILURE_FORM_NOT_FOUND"  # Par défaut
+                title_txt = str(ad_data.get('Titre'))
+                
+                # Essai 1 : Input subject
+                inp = page.locator("input[name='subject']").first
+                if inp.is_visible():
+                    self.human_type(page, "input[name='subject']", title_txt)
                     filled = True
-                except: pass
+                
+                # Essai 2 : Label
+                if not filled:
+                    try:
+                        page.get_by_label("titre", exact=False).first.fill(title_txt)
+                        filled = True
+                    except: pass
 
-            if filled:
-                print(f">>> SUCCES : Titre '{title_txt}' injecté !")
-                
-                # --- GESTION CATEGORIE ---
-                print("[Form] Attente des suggestions de catégorie...")
-                self.random_sleep(2, 4) # Laisser le temps à LBC de charger les suggestions
-                
-                # Récupérer la catégorie souhaitée du Sheet
-                target_cat = str(ad_data.get('Categorie', '')).strip().lower()
-                print(f"   -> Cible Sheet : '{target_cat}'")
+                if filled:
+                    print(f">>> SUCCES : Titre '{title_txt}' injecté !")
+                    
+                    # Check stop flag
+                    if self.check_stop(browser):
+                        return "STOPPED_BY_USER"
+                    
+                    # --- GESTION CATEGORIE ---
+                    print("[Form] Attente des suggestions de catégorie...")
+                    self.random_sleep(2, 4) # Laisser le temps à LBC de charger les suggestions
+                    
+                    # Récupérer la catégorie souhaitée du Sheet
+                    target_cat = str(ad_data.get('Categorie', '')).strip().lower()
+                    print(f"   -> Cible Sheet : '{target_cat}'")
 
                 # Les suggestions sont souvent des div/boutons radio ou des éléments cliquables
                 # On cherche les conteneurs de texte de suggestion
@@ -328,6 +360,10 @@ class LBCPoster:
                     if clicked_cat:
                         print("   -> Catégorie validée.")
                         self.random_sleep(1, 2)
+                        
+                        # Check stop flag
+                        if self.check_stop(browser):
+                            return "STOPPED_BY_USER"
                         
                         # --- SUITE DU FORMULAIRE : BOUTON CONTINUER ---
                         # Une fois titre + catégorie mis, il faut souvent faire "Continuer"
@@ -636,40 +672,49 @@ class LBCPoster:
                          page.get_by_role("button", name="Continuer").last.click()
                     except: pass
                 
-                # --- VALIDATION FINALE (DÉPÔT) ---
-                self.random_sleep(3, 5)
-                print("[Final] Recherche bouton 'Déposer l'annonce'...")
+                    # --- VALIDATION FINALE (DÉPÔT) ---
+                    self.random_sleep(3, 5)
+                    print("[Final] Recherche bouton 'Déposer l'annonce'...")
+                    
+                    # Checkbox CGV ? Souvent implicite ou absent maintenant.
+                    
+                    # Bouton Déposer
+                    # "Déposer mon annonce" ou "Valider"
+                    deposit_btn = page.get_by_role("button", name="Déposer l'annonce").or_(page.get_by_role("button", name="Valider"))
+                    
+                    # --- MODE TEST : ON NE CLIQUE PAS VRAIMENT POUR L'INSTANT ---
+                    # Pour éviter le spam pendant le dev.
+                    # Décommenter la ligne ci-dessous pour activer le vrai dépôt.
+                    # if deposit_btn.is_visible():
+                    #     print(">>> [TEST MODE] Bouton trouvé ! Je ne clique pas pour ne pas payer/publier pour rien.")
+                    #     # deposit_btn.click() 
+                    #     result = "SUCCESS_SIMULATED"
+                    # else:
+                    #     print("   x Bouton final non trouvé.")
+                    
+                    if deposit_btn.is_visible():
+                        print(">>> [READY] Bouton 'Déposer' détecté. En attente de votre feu vert pour activer le clic.")
+                        result = "SUCCESS_READY_TO_POST"
+                    else: 
+                        result = "SUCCESS_NO_BUTTON"
+                    
+                    print("[Cleanup] Pause puis fermeture (60s)...")
+                    self.random_sleep(60)  # Utilise random_sleep pour permettre l'arrêt
                 
-                # Checkbox CGV ? Souvent implicite ou absent maintenant.
+                if not filled:
+                    print(">>> ECHEC : Champ titre introuvable.")
                 
-                # Bouton Déposer
-                # "Déposer mon annonce" ou "Valider"
-                deposit_btn = page.get_by_role("button", name="Déposer l'annonce").or_(page.get_by_role("button", name="Valider"))
+            except StopBotException:
+                print("[Bot] ⏹ Arrêt demandé - Fermeture immédiate du navigateur.")
+                result = "STOPPED_BY_USER"
                 
-                # --- MODE TEST : ON NE CLIQUE PAS VRAIMENT POUR L'INSTANT ---
-                # Pour éviter le spam pendant le dev.
-                # Décommenter la ligne ci-dessous pour activer le vrai dépôt.
-                # if deposit_btn.is_visible():
-                #     print(">>> [TEST MODE] Bouton trouvé ! Je ne clique pas pour ne pas payer/publier pour rien.")
-                #     # deposit_btn.click() 
-                #     result = "SUCCESS_SIMULATED"
-                # else:
-                #     print("   x Bouton final non trouvé.")
-                
-                if deposit_btn.is_visible():
-                     print(">>> [READY] Bouton 'Déposer' détecté. En attente de votre feu vert pour activer le clic.")
-                     result = "SUCCESS_READY_TO_POST"
-                else: 
-                     result = "SUCCESS_NO_BUTTON"
-                
-                # result = "SUCCESS"
-            else:
-                print(">>> ECHEC : Champ titre introuvable.")
-                result = "FAILURE_FORM_NOT_FOUND"
-
-            print("[Cleanup] Pause puis fermeture (60s)...")
-            time.sleep(60) # Pause longue pour vérification visuelle
-            browser.close()
+            finally:
+                print("[Cleanup] Fermeture du navigateur...")
+                try:
+                    browser.close()
+                except:
+                    pass
+            
             return result
 
     def download_photos(self, urls):
