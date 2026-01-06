@@ -78,13 +78,33 @@ def handle_cookies(page):
         print(f"   -> Info Cookie: {e}")
         return False
 
+
+import gsheet_manager
+
 # -----------------------------------------------------------------------------
 # MAIN
 # -----------------------------------------------------------------------------
 
 def main():
-    print("--- LBC AUTOMATION PROTOTYPE (V2) ---")
+    print("--- LBC AUTOMATION PROTOTYPE (V2 - GSheet Integration) ---")
     
+    # 0. Préparation Données (Google Sheets)
+    # Remplacez "Annonces LBC" par le nom exact de votre sheet si différent
+    SHEET_NAME = "LBC-Automation" 
+    try:
+        sheet = gsheet_manager.connect_to_sheets(SHEET_NAME)
+        ad_data, row_num = gsheet_manager.get_next_ad_to_publish(sheet)
+        
+        if not ad_data:
+            print(">>> STOP : Aucune annonce à traiter (Statut 'A_FAIRE').")
+            return
+            
+        print(f">>> Annonce à publier : {ad_data.get('Titre')} ({ad_data.get('Prix')}€)")
+        
+    except Exception as e:
+        print(f"!!! Erreur GSheet : {e}")
+        return
+
     with sync_playwright() as p:
         user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         
@@ -122,71 +142,79 @@ def main():
         page.wait_for_load_state("domcontentloaded")
         random_sleep(2, 4)
 
-        # Gestion Cookie immédiate si présente (souvent au premier chargement)
+        # Gestion Cookie immédiate
         handle_cookies(page)
 
         # 3. Détection de l'état de connexion
-        # Si on est redirigé vers le login, ou si la page contient le texte de login
         login_needed = False
-        
-        # Cas 1 : Redirection URL
         if "connexion" in page.url or "login" in page.url:
             login_needed = True
         
-        # Cas 2 : Contenu de la page (Texte "Connectez-vous")
         if not login_needed:
-             # On attend un tout petit peu pour être sûr que le rendu est fini
              page.wait_for_timeout(1000)
              page_content = page.content()
              if "Connectez-vous ou créez un compte" in page_content or "Me connecter" in page_content:
-                 print("   -> Texte 'Connectez-vous' détecté sur la page.")
                  login_needed = True
 
         if login_needed:
-            print("[3/5] Connexion requise sur cette page.")
-            
-            # Essai de clic sur "Me connecter" présent sur la page
+            print("[3/5] Connexion requise.")
             connect_btn = page.locator("button, a").filter(has_text="Me connecter").first
-            
             if connect_btn.is_visible():
-                print("   -> Clic sur le bouton 'Me connecter' de la page...")
                 connect_btn.click()
             else:
-                print("   -> Bouton non trouvé, force navigation vers URL Login...")
                 page.goto(LOGIN_URL)
             
             perform_login(page)
             
             # Sauvegarde après login
-            print(f"   -> Sauvegarde de la session dans '{COOKIE_FILE}'")
             context.storage_state(path=COOKIE_FILE)
 
-            # Retour page dépôt (si pas redirigé auto)
+            # Retour page dépôt
             print(f"[4/5] Retour sur {POST_AD_URL}...")
             page.wait_for_load_state("domcontentloaded")
             random_sleep(2, 3)
-            # Vérif si on est revenu
             if "deposer" not in page.url:
                  page.goto(POST_AD_URL)
-        else:
-            print("   -> Aucune demande de connexion détectée. (Session active ?)")
 
-        # 4. Vérification finale STRICTE
-        random_sleep(2, 4)
-        print("   -> Analyse de la page finale...")
+        # 4. Remplissage Formulaire (Titre)
+        random_sleep(1, 2)
+        print("   -> Remplissage du formulaire...")
         
-        # On cherche un champ INPUT de type text (souvent le titre) ou le texte "Titre de l'annonce"
-        is_success = False
+        # Le formulaire commence souvent par le Titre
+        # Sélecteurs possibles pour le titre
+        title_selectors = [
+            "input[name='subject']", 
+            "input[id='title']",
+            "textarea[name='subject']" # Parfois textarea
+        ]
         
-        if page.get_by_text("Titre de l'annonce").is_visible() or page.locator("input[name='subject']").is_visible():
-            is_success = True
+        title_filled = False
+        for selector in title_selectors:
+            if page.locator(selector).first.is_visible():
+                 human_type(page, selector, str(ad_data.get('Titre')))
+                 title_filled = True
+                 print("   -> Titre rempli.")
+                 break
         
-        if is_success:
-             print("\n>>> SUCCÈS : Formulaire de dépôt VRAIMENT accessible (Champ Titre trouvé) ! <<<")
+        if not title_filled:
+            # Essai large sur le texte
+            try:
+                page.get_by_label("titre", exact=False).first.fill(str(ad_data.get('Titre')))
+                print("   -> Titre rempli (via Label).")
+                title_filled = True
+            except:
+                pass
+
+        if title_filled:
+             print("\n>>> SUCCÈS ÉTAPE 2 : Annonce lue depuis Sheets et Titre injecté ! <<<")
+             print(f"    Titre utilisé: {ad_data.get('Titre')}")
+             
+             # (Optionnel) Validation dans le Sheet
+             # gsheet_manager.mark_ad_as_published(sheet, row_num)
+             # print("    (Status Sheet mis à jour -> FAIT)")
         else:
-             print("\n>>> ECHEC : Pas de formulaire détecté. <<<")
-             print("    La page semble bloquée ou toujours en mode 'invité'.")
-             print(f"    URL actuelle : {page.url}")
+             print("\n>>> ATTENTION : Formulaire atteint mais champ Titre non détecté. <<<")
+             print(f"URL: {page.url}")
 
         print("Pause finale de 30s...")
         time.sleep(30)
@@ -263,5 +291,4 @@ def perform_login(page):
     page.wait_for_timeout(5000)
 
 if __name__ == "__main__":
-    main()
     main()
