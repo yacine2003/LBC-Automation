@@ -8,16 +8,12 @@ import base64
 from playwright.sync_api import sync_playwright
 
 import gsheet_manager
-
-# -----------------------------------------------------------------------------
-# CONFIGURATION
-# -----------------------------------------------------------------------------
-EMAIL = "comptleboncoin@outlook.fr"
-PASSWORD = "Compte123@GED5"
-
-LOGIN_URL = "https://www.leboncoin.fr/se-connecter"
-POST_AD_URL = "https://www.leboncoin.fr/deposer-une-annonce"
-COOKIE_FILE = "state.json"
+from config import (
+    EMAIL, PASSWORD, LOGIN_URL, POST_AD_URL, COOKIE_FILE,
+    MAX_ADS_PER_RUN, DELAY_BETWEEN_ADS_MIN, DELAY_BETWEEN_ADS_MAX,
+    ENABLE_REAL_POSTING, SHEET_NAME
+)
+from captcha_handler import CaptchaHandler
 
 # Exception personnalisée pour l'arrêt du bot
 class StopBotException(Exception):
@@ -26,7 +22,7 @@ class StopBotException(Exception):
 
 class LBCPoster:
     def __init__(self):
-        self.sheet_name = "LBC-Automation"
+        self.sheet_name = SHEET_NAME
         self.should_stop = False  # Flag for graceful shutdown 
 
     def random_sleep(self, min_s=2.0, max_s=5.0):
@@ -93,17 +89,25 @@ class LBCPoster:
             accept_btn_alt = page.get_by_role("button", name="Tout accepter")
 
             if accept_btn.is_visible(timeout=3000):
-                print("   -> 'Accepter & Fermer'.")
+                print("   -> Bannière cookies détectée : 'Accepter & Fermer'.")
                 self.random_sleep(1, 2)
                 accept_btn.click()
+                print("   -> Clic effectué. Attente disparition bannière...")
+                self.random_sleep(2, 3)  # Attente que la bannière disparaisse
+                page.wait_for_load_state("domcontentloaded")
                 return True
             elif accept_btn_alt.is_visible(timeout=1000):
-                 print("   -> 'Tout accepter'.")
+                 print("   -> Bannière cookies détectée : 'Tout accepter'.")
                  self.random_sleep(1, 2)
                  accept_btn_alt.click()
+                 print("   -> Clic effectué. Attente disparition bannière...")
+                 self.random_sleep(2, 3)  # Attente que la bannière disparaisse
+                 page.wait_for_load_state("domcontentloaded")
                  return True
+            print("   -> Pas de bannière cookies visible.")
             return False
-        except:
+        except Exception as e:
+            print(f"   -> Gestion cookies : {e}")
             return False
 
     def perform_login(self, page):
@@ -165,26 +169,97 @@ class LBCPoster:
 
     def start_process(self, streaming_callback=None):
         """
-        Point d'entrée principal (remplace le main de prototype.py)
+        Point d'entrée principal - Gère la publication de plusieurs annonces
         
         Args:
             streaming_callback: Fonction async appelée avec les screenshots (optionnel)
-                               Signature: async callback(screenshot_base64, status_message)
         """
-        print(">>> Lancement Processus Automatisé (via API) <<<")
+        print("=" * 80)
+        print(f">>> DÉMARRAGE SESSION - Limite: {MAX_ADS_PER_RUN} annonces par session")
+        print("=" * 80)
         
-        # 1. Lecture Sheet
+        ads_published = 0
+        results = []
+        
+        # Connexion au Sheet une seule fois
         try:
             sheet = gsheet_manager.connect_to_sheets(self.sheet_name)
-            ad_data, row_num = gsheet_manager.get_next_ad_to_publish(sheet)
-            if not ad_data:
-                print(">>> STOP : Rien à faire.")
-                return "NO_AD_FOUND"
-            print(f">>> Annonce trouvée : {ad_data.get('Titre')}")
         except Exception as e:
-            print(f"!!! Erreur Sheet: {e}")
+            print(f"!!! Erreur connexion Sheet: {e}")
             return f"ERROR_SHEET_{e}"
-
+        
+        # Boucle de publication
+        while ads_published < MAX_ADS_PER_RUN:
+            if self.should_stop:
+                print("[Session] ⏹ Arrêt demandé par l'utilisateur.")
+                break
+            
+            print(f"\n{'=' * 80}")
+            print(f">>> ANNONCE {ads_published + 1}/{MAX_ADS_PER_RUN}")
+            print(f"{'=' * 80}\n")
+            
+            # Chercher la prochaine annonce à publier
+            try:
+                ad_data, row_num = gsheet_manager.get_next_ad_to_publish(sheet)
+                if not ad_data:
+                    print(">>> Plus d'annonces à publier (toutes sont FAIT).")
+                    break
+                print(f">>> Annonce trouvée : {ad_data.get('Titre')} (ligne {row_num})")
+            except Exception as e:
+                print(f"!!! Erreur lecture Sheet: {e}")
+                break
+            
+            # Publier l'annonce
+            result = self.publish_single_ad(ad_data, row_num, sheet, streaming_callback)
+            results.append({"ad": ad_data.get('Titre'), "result": result})
+            
+            # Si publication réussie, marquer comme FAIT
+            if result.startswith("SUCCESS"):
+                try:
+                    gsheet_manager.mark_ad_as_published(sheet, row_num)
+                    ads_published += 1
+                    print(f"✅ Annonce publiée avec succès ! ({ads_published}/{MAX_ADS_PER_RUN})")
+                except Exception as e:
+                    print(f"⚠️ Erreur mise à jour statut: {e}")
+            else:
+                print(f"❌ Échec publication : {result}")
+                break  # On arrête en cas d'erreur
+            
+            # Délai entre annonces (sauf pour la dernière)
+            if ads_published < MAX_ADS_PER_RUN and ads_published < len(results):
+                delay = random.uniform(DELAY_BETWEEN_ADS_MIN, DELAY_BETWEEN_ADS_MAX)
+                minutes = delay / 60
+                print(f"\n⏳ Pause de {minutes:.1f} minutes avant la prochaine annonce...")
+                try:
+                    self.random_sleep(delay, delay + 10)
+                except StopBotException:
+                    print("[Session] ⏹ Arrêt demandé pendant la pause.")
+                    break
+        
+        # Résumé final
+        print("\n" + "=" * 80)
+        print(f">>> SESSION TERMINÉE - {ads_published} annonce(s) publiée(s)")
+        print("=" * 80)
+        for r in results:
+            status = "✅" if r["result"].startswith("SUCCESS") else "❌"
+            print(f"  {status} {r['ad']}: {r['result']}")
+        print("=" * 80 + "\n")
+        
+        return f"SESSION_COMPLETE_{ads_published}_ADS"
+    
+    def publish_single_ad(self, ad_data, row_num, sheet, streaming_callback=None):
+        """
+        Publie une seule annonce sur LeBonCoin
+        
+        Args:
+            ad_data: Données de l'annonce depuis le Sheet
+            row_num: Numéro de ligne dans le Sheet
+            sheet: Instance du Sheet Google
+            streaming_callback: Callback optionnel pour le streaming
+        
+        Returns:
+            Code de résultat (SUCCESS_*, FAILURE_*, STOPPED_BY_USER)
+        """
         # 2. Playwright
         with sync_playwright() as p:
             print("[Browser] Launching...")
@@ -218,6 +293,11 @@ class LBCPoster:
                 page.wait_for_load_state("domcontentloaded")
                 self.random_sleep(2, 4)
                 self.handle_cookies(page)
+                
+                # Pause importante après gestion cookies pour laisser la page se stabiliser
+                print("   -> Attente stabilisation page après cookies...")
+                self.random_sleep(3, 5)
+                page.wait_for_load_state("networkidle", timeout=10000)
 
                 # Login Check
                 login_needed = False
@@ -232,12 +312,27 @@ class LBCPoster:
                 if login_needed:
                     print("[Login] Connexion requise...")
                     try:
-                        # On attend un peu que le header charge
+                        # On attend que le header soit complètement chargé
+                        print("   -> Attente chargement complet du header...")
+                        self.random_sleep(2, 3)
+                        
                         btn = page.locator("button, a").filter(has_text="Me connecter").first
-                        btn.wait_for(state="visible", timeout=3000)
+                        btn.wait_for(state="visible", timeout=5000)
+                        
+                        # Pause avant de cliquer sur "Me connecter"
+                        print("   -> Bouton 'Me connecter' détecté. Attente avant clic...")
+                        self.random_sleep(2, 3)
+                        
                         btn.click()
                         
                         self.perform_login(page)
+                        
+                        # Vérification captcha après connexion
+                        captcha_handler = CaptchaHandler()
+                        if not captcha_handler.check_at_key_moments(page, "après connexion"):
+                            print("[Login] ❌ Échec résolution captcha après connexion")
+                            return "CAPTCHA_FAILED_AFTER_LOGIN"
+                        
                         context.storage_state(path=COOKIE_FILE) # Save session
 
                         print("[Nav] Retour Dépôt...")
@@ -246,6 +341,12 @@ class LBCPoster:
                     except:
                         print("Could not click login button or login failed. Continuing anyway...")
                     if "deposer" not in page.url: page.goto(POST_AD_URL)
+                
+                # Vérification captcha après navigation
+                captcha_handler = CaptchaHandler()
+                if not captcha_handler.check_at_key_moments(page, "sur page dépôt d'annonce"):
+                    print("[Nav] ❌ Échec résolution captcha sur page dépôt")
+                    return "CAPTCHA_FAILED_ON_DEPOSIT_PAGE"
 
                 # Remplissage
                 self.random_sleep(1, 2)
@@ -464,9 +565,8 @@ class LBCPoster:
                 print("[Form] Gestion des Attributs (Marque, État, etc.)...")
                 
                 # Liste des clés standards à IGNORER (car déjà gérées ou pas des attributs)
-                # Liste des clés standards à IGNORER (car déjà gérées ou pas des attributs)
-                # Ajout de 'Ville' et 'Ville ' pour éviter le traitement générique
-                STANDARD_KEYS = ['ID', 'Titre', 'Description', 'Prix', 'Categorie', 'Photos', 'Statut', 'Ville', 'Ville ']
+                # Ajout de variantes avec espaces pour gérer les erreurs de nommage dans le Sheet
+                STANDARD_KEYS = ['ID', 'Titre', 'Description', 'Prix', 'Prix ', 'Categorie', 'Photos', 'Statut', 'Ville', 'Ville ']
                 
                 # On parcourt toutes les colonnes du Sheet
                 for key, value in ad_data.items():
@@ -571,7 +671,11 @@ class LBCPoster:
                 # --- PRIX ---
                 self.random_sleep(2, 3)
                 print("[Form] Gestion Prix...")
+                # Récupération robuste (Prix ou Prix avec espace)
                 raw_price = str(ad_data.get('Prix', '')).strip()
+                if not raw_price:
+                    raw_price = str(ad_data.get('Prix ', '')).strip()  # Avec espace
+                
                 # On garde que les chiffres (et virgule/point si besoin, mais LBC aime les entiers souvent)
                 price_val = "".join([c for c in raw_price if c.isdigit()])
                 
@@ -614,7 +718,7 @@ class LBCPoster:
                 # --- VILLE / LOCALISATION ---
                 self.random_sleep(2, 3)
                 print("[Form] Gestion Ville...")
-                # Récupératon robuste (Ville ou Ville + espace)
+                # Récupération robuste (Ville ou Ville + espace)
                 city = str(ad_data.get('Ville', '')).strip()
                 if not city: city = str(ad_data.get('Ville ', '')).strip()
 
@@ -658,51 +762,181 @@ class LBCPoster:
                                 page.keyboard.press("Enter")
                                 self.random_sleep(1, 2)
                             
-                            # Valider
-                            print("[Form] Validation Ville...")
+                            # Valider avec le bouton "Continuer" - Recherche robuste
+                            print("[Form] Validation Ville - Recherche bouton 'Continuer'...")
                             self.random_sleep(1, 2)
-                            page.get_by_role("button", name="Continuer").last.click()
+                            
+                            # Stratégie 1 : Par rôle (méthode principale)
+                            continue_btn = None
+                            try:
+                                continue_btn = page.get_by_role("button", name="Continuer").last
+                                if continue_btn.is_visible(timeout=3000):
+                                    print("   -> Bouton 'Continuer' trouvé (par rôle). Clic...")
+                                    continue_btn.click()
+                                    self.random_sleep(2, 3)  # Attente chargement page suivante
+                                    page.wait_for_load_state("domcontentloaded")
+                                    print("   -> Page suivante chargée après validation ville.")
+                                else:
+                                    continue_btn = None
+                            except Exception as e1:
+                                print(f"   -> Tentative 1 échouée: {e1}")
+                                continue_btn = None
+                            
+                            # Stratégie 2 : Par texte visible (fallback)
+                            if not continue_btn:
+                                try:
+                                    continue_btn = page.locator("button").filter(has_text="Continuer").last
+                                    if continue_btn.is_visible(timeout=2000):
+                                        print("   -> Bouton 'Continuer' trouvé (par texte). Clic...")
+                                        continue_btn.click()
+                                        self.random_sleep(2, 3)
+                                        page.wait_for_load_state("domcontentloaded")
+                                        print("   -> Page suivante chargée.")
+                                    else:
+                                        continue_btn = None
+                                except Exception as e2:
+                                    print(f"   -> Tentative 2 échouée: {e2}")
+                                    continue_btn = None
+                            
+                            # Stratégie 3 : Sélecteur générique (dernier recours)
+                            if not continue_btn:
+                                try:
+                                    continue_btn = page.locator("button[type='submit']").last
+                                    if continue_btn.is_visible(timeout=2000):
+                                        print("   -> Bouton submit trouvé. Clic...")
+                                        continue_btn.click()
+                                        self.random_sleep(2, 3)
+                                        page.wait_for_load_state("domcontentloaded")
+                                    else:
+                                        continue_btn = None
+                                except:
+                                    pass
+                            
+                            # Si aucune stratégie n'a fonctionné, essayer Entrée
+                            if not continue_btn:
+                                print("   ⚠️ Bouton 'Continuer' non trouvé. Essai avec Entrée...")
+                                page.keyboard.press("Enter")
+                                self.random_sleep(2, 3)
+                                page.wait_for_load_state("domcontentloaded")
+                                print("   -> Tentative validation avec Entrée.")
                         else:
                             print("   x Champ Ville (Adresse) introuvable.")
+                            # Essayer quand même de continuer
+                            try:
+                                continue_btn = page.get_by_role("button", name="Continuer").last
+                                if continue_btn.is_visible(timeout=2000):
+                                    continue_btn.click()
+                                    self.random_sleep(2, 3)
+                                    page.wait_for_load_state("domcontentloaded")
+                            except:
+                                pass
                     except Exception as e:
                         print(f"      x Erreur Ville : {e}")
+                        import traceback
+                        traceback.print_exc()
                 else:
                     print("   -> Colonne Ville vide ! Cela risque de bloquer.")
                     try:
-                         page.get_by_role("button", name="Continuer").last.click()
+                         continue_btn = page.get_by_role("button", name="Continuer").last
+                         if continue_btn.is_visible(timeout=2000):
+                             continue_btn.click()
+                             self.random_sleep(2, 3)
+                             page.wait_for_load_state("domcontentloaded")
                     except: pass
                 
                     # --- VALIDATION FINALE (DÉPÔT) ---
-                    self.random_sleep(3, 5)
-                    print("[Final] Recherche bouton 'Déposer l'annonce'...")
-                    
-                    # Checkbox CGV ? Souvent implicite ou absent maintenant.
-                    
-                    # Bouton Déposer
-                    # "Déposer mon annonce" ou "Valider"
-                    deposit_btn = page.get_by_role("button", name="Déposer l'annonce").or_(page.get_by_role("button", name="Valider"))
-                    
-                    # --- MODE TEST : ON NE CLIQUE PAS VRAIMENT POUR L'INSTANT ---
-                    # Pour éviter le spam pendant le dev.
-                    # Décommenter la ligne ci-dessous pour activer le vrai dépôt.
-                    # if deposit_btn.is_visible():
-                    #     print(">>> [TEST MODE] Bouton trouvé ! Je ne clique pas pour ne pas payer/publier pour rien.")
-                    #     # deposit_btn.click() 
-                    #     result = "SUCCESS_SIMULATED"
-                    # else:
-                    #     print("   x Bouton final non trouvé.")
-                    
-                    if deposit_btn.is_visible():
-                        print(">>> [READY] Bouton 'Déposer' détecté. En attente de votre feu vert pour activer le clic.")
-                        result = "SUCCESS_READY_TO_POST"
-                    else: 
-                        result = "SUCCESS_NO_BUTTON"
-                    
-                    print("[Cleanup] Pause puis fermeture (60s)...")
-                    self.random_sleep(60)  # Utilise random_sleep pour permettre l'arrêt
-                
-                if not filled:
-                    print(">>> ECHEC : Champ titre introuvable.")
+                    # Cette section doit être dans le bloc if filled:
+                    if filled:
+                        self.random_sleep(3, 5)
+                        print("[Final] Recherche bouton 'Déposer l'annonce'...")
+                        
+                        # Attendre que la page soit complètement chargée
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=10000)
+                        except:
+                            page.wait_for_load_state("domcontentloaded")
+                        
+                        # Vérification captcha avant validation finale
+                        captcha_handler = CaptchaHandler()
+                        if not captcha_handler.check_at_key_moments(page, "avant validation finale"):
+                            print("[Final] ❌ Échec résolution captcha avant validation")
+                            result = "CAPTCHA_FAILED_BEFORE_SUBMIT"
+                        else:
+                            # Recherche robuste du bouton "Déposer l'annonce"
+                            deposit_btn = None
+                            
+                            # Stratégie 1 : Par rôle (méthode principale)
+                            try:
+                                deposit_btn = page.get_by_role("button", name="Déposer l'annonce").first
+                                if not deposit_btn.is_visible(timeout=3000):
+                                    deposit_btn = page.get_by_role("button", name="Valider").first
+                                    if not deposit_btn.is_visible(timeout=2000):
+                                        deposit_btn = None
+                            except:
+                                deposit_btn = None
+                            
+                            # Stratégie 2 : Par texte visible (fallback)
+                            if not deposit_btn:
+                                try:
+                                    deposit_btn = page.locator("button").filter(has_text="Déposer").first
+                                    if not deposit_btn.is_visible(timeout=2000):
+                                        deposit_btn = None
+                                except:
+                                    pass
+                            
+                            # Stratégie 3 : Sélecteur générique (dernier recours)
+                            if not deposit_btn:
+                                try:
+                                    # Chercher un bouton avec "déposer" dans le texte (insensible à la casse)
+                                    all_buttons = page.locator("button").all()
+                                    for btn in all_buttons:
+                                        try:
+                                            text = btn.inner_text().lower()
+                                            if "déposer" in text or "publier" in text or "valider" in text:
+                                                if btn.is_visible():
+                                                    deposit_btn = btn
+                                                    break
+                                        except:
+                                            continue
+                                except:
+                                    pass
+                            
+                            if deposit_btn and deposit_btn.is_visible():
+                                print(">>> [READY] Bouton 'Déposer l'annonce' détecté.")
+                                
+                                if ENABLE_REAL_POSTING:
+                                    # MODE PRODUCTION : On publie vraiment
+                                    print(">>> 🚀 PUBLICATION RÉELLE - Clic sur 'Déposer l'annonce'...")
+                                    self.random_sleep(2, 4)  # Hésitation humaine finale
+                                    deposit_btn.click()
+                                    print(">>> ✅ Clic effectué ! Attente de confirmation...")
+                                    self.random_sleep(5, 8)  # Attente traitement
+                                    result = "SUCCESS_PUBLISHED"
+                                else:
+                                    # MODE TEST : On simule (pas de vrai clic)
+                                    print(">>> 🧪 MODE TEST - Simulation du clic (ENABLE_REAL_POSTING=False)")
+                                    print(">>> Pour activer la vraie publication, mettez ENABLE_REAL_POSTING=True")
+                                    self.random_sleep(2, 3)  # Simulation réaliste
+                                    result = "SUCCESS_SIMULATED"
+                            else: 
+                                print("   x Bouton 'Déposer l'annonce' introuvable.")
+                                print("   -> Vérification de l'URL actuelle...")
+                                print(f"   -> URL: {page.url}")
+                                print("   -> Tentative de capture d'écran pour debug...")
+                                try:
+                                    screenshot_path = f"debug_screenshot_{int(time.time())}.png"
+                                    page.screenshot(path=screenshot_path)
+                                    print(f"   -> Screenshot sauvegardé: {screenshot_path}")
+                                except Exception as e:
+                                    print(f"   -> Erreur screenshot: {e}")
+                                result = "SUCCESS_NO_BUTTON"
+                            
+                            # Pause observation après publication
+                            print("[Cleanup] Pause observation (15s)...")
+                            self.random_sleep(15, 20)  # Observer le résultat
+                    else:
+                        print(">>> ECHEC : Champ titre introuvable.")
+                        result = "FAILURE_FORM_NOT_FOUND"
                 
             except StopBotException:
                 print("[Bot] ⏹ Arrêt demandé - Fermeture immédiate du navigateur.")
