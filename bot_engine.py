@@ -21,9 +21,10 @@ class StopBotException(Exception):
     pass
 
 class LBCPoster:
-    def __init__(self):
+    def __init__(self, ws_callback=None):
         self.sheet_name = SHEET_NAME
-        self.should_stop = False  # Flag for graceful shutdown 
+        self.should_stop = False  # Flag for graceful shutdown
+        self.ws_callback = ws_callback  # Callback pour WebSocket (optionnel) 
 
     def random_sleep(self, min_s=2.0, max_s=5.0):
         """Pause aléatoire avec vérification d'arrêt"""

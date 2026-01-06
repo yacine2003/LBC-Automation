@@ -2,10 +2,14 @@
 from fastapi import FastAPI, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from fastapi import HTTPException
+from pydantic import BaseModel
 from bot_engine import LBCPoster
 import uvicorn
 import asyncio
 import json
+import os
+from pathlib import Path
 
 app = FastAPI(title="LBC Automation API")
 
@@ -33,6 +37,110 @@ class ConnectionManager:
                 pass
 
 manager = ConnectionManager()
+
+# Modèle de configuration
+class ConfigData(BaseModel):
+    email: str
+    password: str
+    sheet_name: str
+    max_ads: int = 3
+    delay_min: int = 300
+    delay_max: int = 600
+    real_posting: bool = False
+    browser_mode: str = "minimized"
+    captcha_wait: int = 300
+
+# Endpoints de configuration
+@app.get("/api/config")
+async def get_config():
+    """Récupère la configuration actuelle (sans le mot de passe pour sécurité)"""
+    config_file = Path("config.env")
+    
+    if not config_file.exists():
+        # Retourner les valeurs par défaut
+        return {
+            "email": "",
+            "sheet_name": "LBC-Automation",
+            "max_ads": 3,
+            "delay_min": 300,
+            "delay_max": 600,
+            "real_posting": False,
+            "browser_mode": "minimized",
+            "captcha_wait": 300
+        }
+    
+    # Lire le fichier config.env
+    config = {}
+    with open(config_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                config[key] = value
+    
+    # Retourner la config (sans le mot de passe)
+    return {
+        "email": config.get("LEBONCOIN_EMAIL", ""),
+        "sheet_name": config.get("GOOGLE_SHEET_NAME", "LBC-Automation"),
+        "max_ads": int(config.get("MAX_ADS_PER_RUN", "3")),
+        "delay_min": int(config.get("DELAY_BETWEEN_ADS_MIN", "300")),
+        "delay_max": int(config.get("DELAY_BETWEEN_ADS_MAX", "600")),
+        "real_posting": config.get("ENABLE_REAL_POSTING", "false").lower() == "true",
+        "browser_mode": config.get("BROWSER_MODE", "minimized"),
+        "captcha_wait": int(config.get("CAPTCHA_MAX_WAIT", "300"))
+    }
+
+@app.post("/api/config")
+async def save_config(config: ConfigData):
+    """Sauvegarde la configuration dans config.env"""
+    config_file = Path("config.env")
+    
+    # Créer le contenu du fichier
+    content = f"""# ==================== CONFIGURATION LBC AUTOMATION ====================
+# Fichier généré automatiquement via l'interface web
+# Dernière modification : {asyncio.get_event_loop().time()}
+# ⚠️ NE PARTAGEZ JAMAIS CE FICHIER !
+# ======================================================================
+
+# ==================== IDENTIFIANTS LEBONCOIN ====================
+LEBONCOIN_EMAIL={config.email}
+LEBONCOIN_PASSWORD={config.password}
+
+# ==================== GOOGLE SHEETS ====================
+GOOGLE_SHEET_NAME={config.sheet_name}
+
+# ==================== PUBLICATION ====================
+MAX_ADS_PER_RUN={config.max_ads}
+DELAY_BETWEEN_ADS_MIN={config.delay_min}
+DELAY_BETWEEN_ADS_MAX={config.delay_max}
+ENABLE_REAL_POSTING={'true' if config.real_posting else 'false'}
+
+# ==================== MODE NAVIGATEUR ====================
+BROWSER_MODE={config.browser_mode}
+
+# ==================== CAPTCHA ====================
+CAPTCHA_MAX_WAIT={config.captcha_wait}
+CAPTCHA_MODE=manual
+"""
+    
+    # Écrire le fichier
+    with open(config_file, 'w', encoding='utf-8') as f:
+        f.write(content)
+    
+    print(f"✅ Configuration sauvegardée dans {config_file}")
+    
+    return {"status": "success", "message": "Configuration sauvegardée avec succès"}
+
+@app.get("/config-page", response_class=HTMLResponse)
+async def config_page():
+    """Sert la page de configuration"""
+    try:
+        with open("static/config.html", "r", encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Page de configuration introuvable")
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -104,12 +212,21 @@ async def websocket_stream(websocket: WebSocket):
                     "message": "Initialisation du bot..."
                 })
                 
-                # Create bot instance
-                poster = LBCPoster()
+                # Create callback for thread-safe WebSocket messages
+                loop = asyncio.get_event_loop()
+                
+                def ws_callback(message):
+                    """Thread-safe callback pour envoyer des messages WebSocket depuis le bot"""
+                    asyncio.run_coroutine_threadsafe(
+                        manager.broadcast(message),
+                        loop
+                    )
+                
+                # Create bot instance with WebSocket callback
+                poster = LBCPoster(ws_callback=ws_callback)
                 manager.bot_instance = poster
                 
                 # Run bot in executor (thread pool) to not block WebSocket
-                loop = asyncio.get_event_loop()
                 
                 # Fonction wrapper pour nettoyer après l'exécution
                 async def run_and_notify():

@@ -1,0 +1,22 @@
+# LBC Automation - Dépendances Python
+# Installation : pip install -r requirements.txt
+
+# Framework Web
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Automatisation Navigateur
+playwright==1.40.0
+playwright-stealth==1.0.6
+
+# Google Sheets API
+gspread==5.12.0
+oauth2client==4.1.3
+
+# Utilitaires
+requests==2.31.0
+python-multipart==0.0.6
+
+# Note : Après l'installation, exécutez :
+# python -m playwright install chromium
+

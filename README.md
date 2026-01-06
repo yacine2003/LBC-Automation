@@ -103,11 +103,46 @@ Votre feuille doit contenir ces colonnes :
 Éditez `config.py` pour ajuster :
 
 ```python
+# === PUBLICATION ===
 MAX_ADS_PER_RUN = 3              # Annonces par session (recommandé : 3)
 DELAY_BETWEEN_ADS_MIN = 300      # Délai min entre annonces (5 min)
 DELAY_BETWEEN_ADS_MAX = 600      # Délai max entre annonces (10 min)
 ENABLE_REAL_POSTING = False      # True = publication réelle
+
+# === NAVIGATEUR ===
+BROWSER_MODE = "minimized"       # "visible", "minimized" ou "headless" 🆕
+USER_AGENT = "Mozilla/5.0..."    # User-Agent Windows (déjà configuré)
 ```
+
+### 🖥️ Modes d'Affichage du Navigateur
+
+#### Mode Minimisé (Recommandé pour production)
+```python
+BROWSER_MODE = "minimized"
+```
+- ✅ Fenêtre dans la barre des tâches Windows (ou Dock macOS)
+- ✅ Moins détectable que le mode headless
+- ✅ Accessible pour résoudre les captchas
+- ✅ N'interfère pas avec votre travail
+- 🎯 **PARFAIT POUR LA PRODUCTION CLIENT**
+
+#### Mode Visible (Pour debug/test)
+```python
+BROWSER_MODE = "visible"
+```
+- 👁️ Fenêtre normale visible à l'écran
+- ✅ Idéal pour débugger ou voir ce qui se passe
+- ⚠️ Peut être intrusif pendant le travail
+
+#### Mode Headless (Non recommandé)
+```python
+BROWSER_MODE = "headless"
+```
+- 👻 Complètement invisible (pas de fenêtre)
+- ⚠️ **RISQUE ÉLEVÉ** de détection par LeBonCoin
+- ❌ Impossible de résoudre les captchas manuellement
+- ❌ Difficile à débugger
+- ⚠️ À éviter en production
 
 ## 📖 Guide Complet
 
@@ -133,6 +168,29 @@ Le bot intègre plusieurs protections :
 - Espacez les sessions de 3-4 heures minimum
 - Variez les horaires de publication
 - Surveillez votre compte LBC régulièrement
+
+## 🪟 Déploiement sur Windows
+
+Le bot est optimisé pour Windows ! Pour un déploiement client :
+
+### Option 1 : Lancement par double-clic
+1. Double-cliquez sur `Lancer_Bot.bat`
+2. Le serveur démarre automatiquement
+3. Ouvrez votre navigateur sur `http://localhost:8000`
+
+### Option 2 : Ligne de commande
+```cmd
+cd C:\Users\VotreNom\Documents\Automatisation
+python main.py
+```
+
+### Configuration pour Windows
+Le bot est pré-configuré avec :
+- ✅ User-Agent Windows natif
+- ✅ Mode navigateur minimisé par défaut
+- ✅ Tous les paramètres anti-ban
+
+📖 **Guide complet** : Consultez [DEPLOIEMENT_WINDOWS.md](DEPLOIEMENT_WINDOWS.md)
 
 ## 🔐 Gestion des Captchas
 
@@ -187,11 +245,12 @@ Automatisation/
 ├── img/                      # Dossier des photos
 ├── backup_test/              # Sauvegardes pour tests
 ├── README.md                 # Ce fichier
-├── GUIDE_PUBLICATION.md      # Guide détaillé
-├── GUIDE_TEST_CAPTCHA.md     # Guide test avec captchas 🆕
+├── DEPLOIEMENT_WINDOWS.md    # Guide complet Windows 🆕
 ├── test_multi_publish.py     # Script de test
 ├── test_fresh_start.py       # Test première installation 🆕
-└── check_sheet_columns.py    # Diagnostic Google Sheet
+├── test_browser_modes.py     # Test des modes navigateur 🆕
+├── check_sheet_columns.py    # Diagnostic Google Sheet
+└── Lancer_Bot.bat            # Lancement rapide Windows 🆕
 ```
 
 ## 🔧 Dépannage

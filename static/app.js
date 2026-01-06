@@ -1,7 +1,10 @@
 // WebSocket connection
 let ws = null;
-let canvas = null;
-let ctx = null;
+
+// Session state
+let sessionStartTime = null;
+let timerInterval = null;
+let captchaAudio = null;
 
 // DOM elements
 const startBtn = document.getElementById('start-btn');
@@ -9,25 +12,27 @@ const stopBtn = document.getElementById('stop-btn');
 const wsIndicator = document.getElementById('ws-indicator');
 const wsStatus = document.getElementById('ws-status');
 const botStatus = document.getElementById('bot-status');
-const viewer = document.getElementById('viewer');
-const placeholder = viewer.querySelector('.placeholder');
+const logsContainer = document.getElementById('logs-container');
+const logsPlaceholder = document.getElementById('logs-placeholder');
+const captchaAlert = document.getElementById('captcha-alert');
+
+// Stats elements
+const statPublished = document.getElementById('stat-published');
+const statCurrent = document.getElementById('stat-current');
+const statTime = document.getElementById('stat-time');
+const statStatus = document.getElementById('stat-status');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    canvas = document.getElementById('browser-canvas');
-    ctx = canvas.getContext('2d');
-
     // Connect WebSocket
     connectWebSocket();
 
-    // Start button handler
+    // Button handlers
     startBtn.addEventListener('click', startBot);
-
-    // Stop button handler
     stopBtn.addEventListener('click', stopBot);
 
-    // Canvas click handler (for Captcha interaction)
-    canvas.addEventListener('click', handleCanvasClick);
+    // Préparer l'audio pour captcha (son d'alerte)
+    prepareCaptchaAudio();
 });
 
 function connectWebSocket() {
@@ -63,50 +68,183 @@ function connectWebSocket() {
 
 function handleWebSocketMessage(data) {
     switch (data.type) {
-        case 'screenshot':
-            // Display screenshot on canvas
-            displayScreenshot(data.image);
-            break;
-
         case 'status':
             // Update bot status
             botStatus.textContent = data.message;
+            statStatus.textContent = data.message;
+            addLog(data.message, 'info');
+            break;
+
+        case 'log':
+            // Add log entry
+            addLog(data.message, data.level || 'info');
+            break;
+
+        case 'captcha_detected':
+            // Show captcha alert
+            showCaptchaAlert();
+            addLog('🚨 CAPTCHA DÉTECTÉ - Résolution manuelle requise', 'captcha');
+            break;
+
+        case 'captcha_resolved':
+            // Hide captcha alert
+            hideCaptchaAlert();
+            addLog('✅ Captcha résolu - Reprise du processus', 'success');
+            break;
+
+        case 'ad_start':
+            // Nouvelle annonce commencée
+            statCurrent.textContent = data.ad_title || 'En cours...';
+            addLog(`📝 Début publication: ${data.ad_title}`, 'info');
+            break;
+
+        case 'ad_complete':
+            // Annonce terminée
+            const currentCount = parseInt(statPublished.textContent) || 0;
+            statPublished.textContent = currentCount + 1;
+            statCurrent.textContent = '-';
+            addLog(`✅ Annonce publiée: ${data.ad_title}`, 'success');
+            break;
+
+        case 'session_stats':
+            // Update stats
+            if (data.published !== undefined) statPublished.textContent = data.published;
+            if (data.current) statCurrent.textContent = data.current;
             break;
 
         case 'bot_stopped':
             // Reset UI when bot stops
-            botStatus.textContent = 'Bot arrêté';
-            startBtn.style.display = 'inline-block';
-            startBtn.disabled = false;
-            startBtn.textContent = '▶ DÉMARRER';
-            stopBtn.style.display = 'none';
-            stopBtn.disabled = false;
-            stopBtn.textContent = '⏹ ARRÊTER';
+            stopSession();
+            addLog('⏹ Bot arrêté', 'warning');
             break;
 
-        case 'log':
-            // Display log message
-            console.log('[Bot]', data.message);
+        case 'error':
+            // Error message
+            addLog(`❌ Erreur: ${data.message}`, 'error');
             break;
     }
 }
 
-function displayScreenshot(base64Image) {
-    // Hide placeholder, show canvas
-    placeholder.style.display = 'none';
-    canvas.style.display = 'block';
+// === LOGS MANAGEMENT ===
+function addLog(message, level = 'info') {
+    // Hide placeholder on first log
+    if (logsPlaceholder) {
+        logsPlaceholder.style.display = 'none';
+    }
 
-    // Create image from base64
-    const img = new Image();
-    img.onload = () => {
-        // Resize canvas to match image
-        canvas.width = img.width;
-        canvas.height = img.height;
+    // Create log entry
+    const logEntry = document.createElement('div');
+    logEntry.className = `log-entry ${level}`;
+    
+    const timestamp = new Date().toLocaleTimeString('fr-FR');
+    logEntry.innerHTML = `<span class="timestamp">[${timestamp}]</span>${message}`;
+    
+    logsContainer.appendChild(logEntry);
+    
+    // Auto-scroll to bottom
+    logsContainer.scrollTop = logsContainer.scrollHeight;
 
-        // Draw image
-        ctx.drawImage(img, 0, 0);
-    };
-    img.src = `data:image/png;base64,${base64Image}`;
+    // Limit logs to 100 entries
+    const logs = logsContainer.querySelectorAll('.log-entry');
+    if (logs.length > 100) {
+        logs[0].remove();
+    }
+}
+
+function clearLogs() {
+    const logs = logsContainer.querySelectorAll('.log-entry');
+    logs.forEach(log => log.remove());
+    if (logsPlaceholder) {
+        logsPlaceholder.style.display = 'block';
+    }
+}
+
+// === CAPTCHA ALERT ===
+function showCaptchaAlert() {
+    captchaAlert.classList.add('active');
+    playCaptchaSound();
+}
+
+function hideCaptchaAlert() {
+    captchaAlert.classList.remove('active');
+}
+
+function prepareCaptchaAudio() {
+    // Créer un contexte audio pour le son d'alerte
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        captchaAudio = audioContext;
+    } catch (e) {
+        console.warn('Audio not supported');
+    }
+}
+
+function playCaptchaSound() {
+    // Jouer un son d'alerte simple
+    if (!captchaAudio) return;
+    
+    try {
+        const oscillator = captchaAudio.createOscillator();
+        const gainNode = captchaAudio.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(captchaAudio.destination);
+        
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, captchaAudio.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, captchaAudio.currentTime + 0.5);
+        
+        oscillator.start(captchaAudio.currentTime);
+        oscillator.stop(captchaAudio.currentTime + 0.5);
+        
+        // Répéter 3 fois
+        setTimeout(() => playCaptchaSound(), 600);
+        setTimeout(() => playCaptchaSound(), 1200);
+    } catch (e) {
+        console.warn('Could not play sound', e);
+    }
+}
+
+// === SESSION TIMER ===
+function startTimer() {
+    sessionStartTime = Date.now();
+    timerInterval = setInterval(updateTimer, 1000);
+}
+
+function stopTimer() {
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+}
+
+function updateTimer() {
+    if (!sessionStartTime) return;
+    
+    const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
+    const minutes = Math.floor(elapsed / 60);
+    const seconds = elapsed % 60;
+    
+    statTime.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+// === SESSION MANAGEMENT ===
+function stopSession() {
+    stopTimer();
+    botStatus.textContent = 'Bot arrêté';
+    statStatus.textContent = 'Terminé';
+    statCurrent.textContent = '-';
+    
+    startBtn.style.display = 'inline-block';
+    startBtn.disabled = false;
+    startBtn.textContent = '▶ DÉMARRER';
+    stopBtn.style.display = 'none';
+    stopBtn.disabled = false;
+    stopBtn.textContent = '⏹ ARRÊTER';
+    
+    hideCaptchaAlert();
 }
 
 function startBot() {
@@ -115,6 +253,18 @@ function startBot() {
         return;
     }
 
+    // Reset stats
+    statPublished.textContent = '0';
+    statCurrent.textContent = 'Initialisation...';
+    statTime.textContent = '00:00';
+    statStatus.textContent = 'En cours';
+    
+    // Clear previous logs
+    clearLogs();
+    
+    // Start timer
+    startTimer();
+    
     // Toggle buttons
     startBtn.style.display = 'none';
     stopBtn.style.display = 'inline-block';
@@ -125,6 +275,7 @@ function startBot() {
     }));
 
     botStatus.textContent = 'Démarrage en cours...';
+    addLog('🚀 Démarrage de la session de publication...', 'info');
 }
 
 function stopBot() {
@@ -143,37 +294,5 @@ function stopBot() {
     stopBtn.textContent = '⏳ Arrêt...';
 
     botStatus.textContent = 'Arrêt du bot en cours...';
-}
-
-function handleCanvasClick(event) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-    // Get click coordinates relative to canvas
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-
-    const x = (event.clientX - rect.left) * scaleX;
-    const y = (event.clientY - rect.top) * scaleY;
-
-    // Send click to backend
-    ws.send(JSON.stringify({
-        type: 'click',
-        x: Math.round(x),
-        y: Math.round(y)
-    }));
-
-    console.log(`[Click] Sent to bot: (${Math.round(x)}, ${Math.round(y)})`);
-
-    // Visual feedback
-    ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
-    ctx.beginPath();
-    ctx.arc(x, y, 10, 0, 2 * Math.PI);
-    ctx.fill();
-
-    // Fade out the red circle
-    setTimeout(() => {
-        // Redraw from last screenshot
-        // (will be overwritten by next frame anyway)
-    }, 200);
+    addLog('⏸️ Demande d\'arrêt envoyée...', 'warning');
 }

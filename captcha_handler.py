@@ -7,9 +7,26 @@ import time
 from playwright.sync_api import Page
 
 class CaptchaHandler:
-    def __init__(self):
+    def __init__(self, ws_callback=None):
         self.captcha_detected = False
         self.manual_mode = True  # Par défaut, résolution manuelle
+        self.ws_callback = ws_callback  # Callback pour notifications WebSocket
+    
+    def notify_captcha_detected(self):
+        """Notifie via WebSocket qu'un captcha a été détecté"""
+        if self.ws_callback:
+            try:
+                self.ws_callback({"type": "captcha_detected"})
+            except:
+                pass
+    
+    def notify_captcha_resolved(self):
+        """Notifie via WebSocket qu'un captcha a été résolu"""
+        if self.ws_callback:
+            try:
+                self.ws_callback({"type": "captcha_resolved"})
+            except:
+                pass
     
     def detect_captcha(self, page: Page) -> bool:
         """
@@ -80,6 +97,9 @@ class CaptchaHandler:
             page: Page Playwright
             timeout: Temps maximum d'attente en secondes (5 min par défaut)
         """
+        # Notifier via WebSocket
+        self.notify_captcha_detected()
+        
         print()
         print("=" * 80)
         print("⏸️  PAUSE CAPTCHA - RÉSOLUTION MANUELLE REQUISE")
@@ -106,6 +126,10 @@ class CaptchaHandler:
                 print("=" * 80)
                 print()
                 self.captcha_detected = False
+                
+                # Notifier via WebSocket
+                self.notify_captcha_resolved()
+                
                 return True
             
             # Afficher le temps écoulé
