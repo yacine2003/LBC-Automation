@@ -1,8 +1,10 @@
 
+
 import time
 import random
 import os
 import sys
+import base64
 from playwright.sync_api import sync_playwright
 
 import gsheet_manager
@@ -26,6 +28,16 @@ class LBCPoster:
         duration = random.uniform(min_s, max_s)
         print(f"   [Sleep] Pause de {duration:.2f}s...")
         time.sleep(duration)
+
+    def capture_screenshot(self, page):
+        """Capture screenshot et encode en base64 pour streaming"""
+        try:
+            screenshot_bytes = page.screenshot()
+            screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
+            return screenshot_base64
+        except Exception as e:
+            print(f"   ! Erreur capture screenshot : {e}")
+            return None
 
     def human_type(self, page, selector, text, delay_min=0.1, delay_max=0.3):
         """Frappe au clavier humaine"""
@@ -125,8 +137,14 @@ class LBCPoster:
         print("   -> Attente redirection...")
         page.wait_for_timeout(5000)
 
-    def start_process(self):
-        """Point d'entrée principal (remplace le main de prototype.py)"""
+    def start_process(self, streaming_callback=None):
+        """
+        Point d'entrée principal (remplace le main de prototype.py)
+        
+        Args:
+            streaming_callback: Fonction async appelée avec les screenshots (optionnel)
+                               Signature: async callback(screenshot_base64, status_message)
+        """
         print(">>> Lancement Processus Automatisé (via API) <<<")
         
         # 1. Lecture Sheet
@@ -491,10 +509,10 @@ class LBCPoster:
                         lbl_desc.click()
                         self.random_sleep(1, 2)
                         
-                        # Human Typing pour la description
+                        # Human Typing pour la description (RALENTI)
                         for char in desc:
                              page.keyboard.type(char)
-                             time.sleep(random.uniform(0.01, 0.05)) # Typing rapide mais humain
+                             time.sleep(random.uniform(0.05, 0.15)) # 50-150ms par caractère
                         
                         print("   -> Description remplie.")
                         
@@ -617,8 +635,34 @@ class LBCPoster:
                     try:
                          page.get_by_role("button", name="Continuer").last.click()
                     except: pass
-                    
-                result = "SUCCESS"
+                
+                # --- VALIDATION FINALE (DÉPÔT) ---
+                self.random_sleep(3, 5)
+                print("[Final] Recherche bouton 'Déposer l'annonce'...")
+                
+                # Checkbox CGV ? Souvent implicite ou absent maintenant.
+                
+                # Bouton Déposer
+                # "Déposer mon annonce" ou "Valider"
+                deposit_btn = page.get_by_role("button", name="Déposer l'annonce").or_(page.get_by_role("button", name="Valider"))
+                
+                # --- MODE TEST : ON NE CLIQUE PAS VRAIMENT POUR L'INSTANT ---
+                # Pour éviter le spam pendant le dev.
+                # Décommenter la ligne ci-dessous pour activer le vrai dépôt.
+                # if deposit_btn.is_visible():
+                #     print(">>> [TEST MODE] Bouton trouvé ! Je ne clique pas pour ne pas payer/publier pour rien.")
+                #     # deposit_btn.click() 
+                #     result = "SUCCESS_SIMULATED"
+                # else:
+                #     print("   x Bouton final non trouvé.")
+                
+                if deposit_btn.is_visible():
+                     print(">>> [READY] Bouton 'Déposer' détecté. En attente de votre feu vert pour activer le clic.")
+                     result = "SUCCESS_READY_TO_POST"
+                else: 
+                     result = "SUCCESS_NO_BUTTON"
+                
+                # result = "SUCCESS"
             else:
                 print(">>> ECHEC : Champ titre introuvable.")
                 result = "FAILURE_FORM_NOT_FOUND"

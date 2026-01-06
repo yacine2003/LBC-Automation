@@ -1,12 +1,23 @@
-
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
 *.so
-.env
-venv/
-.venv/
+*.egg
+*.egg-info/
+
+# Secrets & Credentials
+state.json
+service_account.json
+
+# Images temporaires
+temp_images/
+
+# IDE
+.vscode/
+.idea/
 
 # Playwright
 test-results/

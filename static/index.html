@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LBC Automation - Contrôle Bot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            padding: 30px;
+            color: white;
+        }
+        
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+        }
+        
+        .controls {
+            padding: 20px 30px;
+            background: #f7f9fc;
+            border-bottom: 1px solid #e1e8ed;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-start {
+            background: #10b981;
+            color: white;
+        }
+        
+        .btn-start:hover:not(:disabled) {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+        
+        .btn-start:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            flex: 1;
+            padding: 10px 20px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .status-text {
+            font-size: 14px;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        
+        .status-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        
+        .viewer {
+            padding: 30px;
+            background: #1e293b;
+            min-height: 600px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #browser-canvas {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            cursor: crosshair;
+        }
+        
+        .placeholder {
+            text-align: center;
+            color: #64748b;
+        }
+        
+        .placeholder h2 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        .connection-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef4444;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .connection-indicator.connected {
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 LBC Automation - Interface de Contrôle</h1>
+            <p>Gérez vos annonces Leboncoin avec surveillance en temps réel</p>
+        </div>
+        
+        <div class="controls">
+            <button id="start-btn" class="btn btn-start">▶ DÉMARRER</button>
+            
+            <div class="status">
+                <div class="status-text">
+                    <span class="connection-indicator" id="ws-indicator"></span>
+                    Connexion WebSocket
+                </div>
+                <div class="status-value" id="ws-status">Déconnecté</div>
+            </div>
+            
+            <div class="status">
+                <div class="status-text">État du Bot</div>
+                <div class="status-value" id="bot-status">En attente</div>
+            </div>
+        </div>
+        
+        <div class="viewer" id="viewer">
+            <div class="placeholder">
+                <h2>👀 Écran du bot apparaîtra ici</h2>
+                <p>Cliquez sur DÉMARRER pour lancer l'automatisation</p>
+            </div>
+            <canvas id="browser-canvas" style="display: none;"></canvas>
+        </div>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>
