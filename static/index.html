@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LBC Automation - Contrôle Bot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            padding: 30px;
+            color: white;
+            position: relative;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+        }
+
+        .controls {
+            padding: 20px 30px;
+            background: #f7f9fc;
+            border-bottom: 1px solid #e1e8ed;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-start {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-start:hover:not(:disabled) {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-start:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-stop {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-stop:hover:not(:disabled) {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+        }
+
+        .btn-stop:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status {
+            flex: 1;
+            padding: 10px 20px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #3b82f6;
+        }
+
+        .status-text {
+            font-size: 14px;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+
+        .status-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 20px 30px;
+            background: #f7f9fc;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #1e293b;
+        }
+
+        .stat-value.success {
+            color: #10b981;
+        }
+
+        .stat-value.warning {
+            color: #f59e0b;
+        }
+
+        .captcha-alert {
+            display: none;
+            padding: 20px 30px;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            align-items: center;
+            gap: 15px;
+            animation: pulse-alert 1s infinite;
+        }
+
+        .captcha-alert.active {
+            display: flex;
+        }
+
+        @keyframes pulse-alert {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+
+        .captcha-icon {
+            font-size: 32px;
+            animation: shake 0.5s infinite;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(-10deg); }
+            75% { transform: rotate(10deg); }
+        }
+
+        .captcha-text {
+            flex: 1;
+        }
+
+        .captcha-text h3 {
+            font-size: 20px;
+            margin-bottom: 5px;
+        }
+
+        .captcha-text p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .logs-container {
+            padding: 30px;
+            background: #0f172a;
+            min-height: 500px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            background: #1e293b;
+            border-left: 4px solid #3b82f6;
+            color: #e2e8f0;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .log-entry .timestamp {
+            color: #64748b;
+            margin-right: 10px;
+        }
+
+        .log-entry.success {
+            border-left-color: #10b981;
+            background: #1e293b;
+        }
+
+        .log-entry.error {
+            border-left-color: #ef4444;
+            background: #2d1f1f;
+        }
+
+        .log-entry.warning {
+            border-left-color: #f59e0b;
+            background: #2d2619;
+        }
+
+        .log-entry.info {
+            border-left-color: #3b82f6;
+        }
+
+        .log-entry.captcha {
+            border-left-color: #ef4444;
+            background: #3d1f1f;
+            animation: pulse-log 1s infinite;
+        }
+
+        @keyframes pulse-log {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .placeholder {
+            text-align: center;
+            color: #64748b;
+            padding: 40px;
+        }
+
+        .placeholder h2 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .connection-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef4444;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .connection-indicator.connected {
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 LBC Automation - Interface de Contrôle</h1>
+            <p>Gérez vos annonces Leboncoin avec surveillance en temps réel</p>
+            <a href="/config-page" style="position: absolute; top: 30px; right: 30px; background: rgba(255,255,255,0.2); padding: 10px 20px; border-radius: 8px; color: white; text-decoration: none; font-weight: 600;">⚙️ Configuration</a>
+        </div>
+
+        <div class="controls">
+            <button id="start-btn" class="btn btn-start">▶ DÉMARRER</button>
+            <button id="stop-btn" class="btn btn-stop" style="display: none;">⏹ ARRÊTER</button>
+
+            <div class="status">
+                <div class="status-text">
+                    <span class="connection-indicator" id="ws-indicator"></span>
+                    Connexion WebSocket
+                </div>
+                <div class="status-value" id="ws-status">Déconnecté</div>
+            </div>
+
+            <div class="status">
+                <div class="status-text">État du Bot</div>
+                <div class="status-value" id="bot-status">En attente</div>
+            </div>
+        </div>
+
+        <!-- Statistiques de session -->
+        <div class="stats-grid" id="stats-section">
+            <div class="stat-card">
+                <div class="stat-label">Annonces Publiées</div>
+                <div class="stat-value success" id="stat-published">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">En Cours</div>
+                <div class="stat-value" id="stat-current">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Temps Écoulé</div>
+                <div class="stat-value" id="stat-time">00:00</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Statut</div>
+                <div class="stat-value warning" id="stat-status">En attente</div>
+            </div>
+        </div>
+
+        <!-- Alerte Captcha -->
+        <div class="captcha-alert" id="captcha-alert">
+            <div class="captcha-icon">🚨</div>
+            <div class="captcha-text">
+                <h3>⚠️ CAPTCHA DÉTECTÉ !</h3>
+                <p>Veuillez résoudre le captcha manuellement dans le navigateur minimisé (cliquez sur l'icône Chromium)</p>
+            </div>
+        </div>
+
+        <!-- Zone de logs -->
+        <div class="logs-container" id="logs-container">
+            <div class="placeholder" id="logs-placeholder">
+                <h2>📋 Logs en temps réel</h2>
+                <p>Les logs de publication apparaîtront ici une fois le bot démarré</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

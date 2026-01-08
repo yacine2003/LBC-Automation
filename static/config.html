@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration - LBC Automation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            padding: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            color: #475569;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 5px;
+            color: #64748b;
+            font-size: 12px;
+        }
+
+        .warning-box {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .warning-box strong {
+            color: #92400e;
+        }
+
+        .warning-box p {
+            color: #78350f;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .success-box {
+            background: #d1fae5;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .success-box.active {
+            display: block;
+        }
+
+        .success-box strong {
+            color: #065f46;
+        }
+
+        .success-box p {
+            color: #047857;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-save {
+            background: #10b981;
+            color: white;
+            width: 100%;
+        }
+
+        .btn-save:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-back {
+            background: #64748b;
+            color: white;
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        .btn-back:hover {
+            background: #475569;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            margin: 0;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚙️ Configuration du Bot</h1>
+            <p>Configurez vos identifiants et paramètres sans toucher au code</p>
+        </div>
+
+        <div class="content">
+            <div class="warning-box">
+                <strong>⚠️ Important</strong>
+                <p>Ces informations sont sensibles. Ne les partagez jamais avec personne.</p>
+            </div>
+
+            <div class="success-box" id="success-message">
+                <strong>✅ Configuration sauvegardée</strong>
+                <p>Vos paramètres ont été enregistrés avec succès. Vous pouvez maintenant utiliser le bot.</p>
+            </div>
+
+            <form id="config-form">
+                <!-- Identifiants LeBonCoin -->
+                <div class="section">
+                    <div class="section-title">🔐 Identifiants LeBonCoin</div>
+                    
+                    <div class="form-group">
+                        <label for="email">Email LeBonCoin *</label>
+                        <input type="email" id="email" name="email" required placeholder="votre_email@example.com">
+                        <small>L'email que vous utilisez pour vous connecter sur leboncoin.fr</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Mot de passe *</label>
+                        <input type="password" id="password" name="password" required placeholder="••••••••">
+                        <small>Votre mot de passe LeBonCoin (stocké localement de façon sécurisée)</small>
+                    </div>
+                </div>
+
+                <!-- Google Sheets -->
+                <div class="section">
+                    <div class="section-title">📊 Google Sheets</div>
+                    
+                    <div class="form-group">
+                        <label for="sheet_name">Nom du Google Sheet *</label>
+                        <input type="text" id="sheet_name" name="sheet_name" required placeholder="LBC-Automation">
+                        <small>Le nom exact de votre feuille Google Sheets</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="img_folder">📁 Dossier des photos *</label>
+                        <input type="text" id="img_folder" name="img_folder" required placeholder="Exemple : C:/Photos/LBC ou /Users/VotreNom/Photos">
+                        <small>
+                            ⚠️ <strong>Chemin absolu REQUIS</strong> vers le dossier contenant vos photos.<br>
+                            <strong>Windows :</strong> C:/Photos/LBC ou D:/Mes Documents/Photos<br>
+                            <strong>macOS :</strong> /Users/VotreNom/Photos ou /Users/VotreNom/Pictures/LBC<br>
+                            💡 Utilisez des / (slash) et non des \ (antislash)
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Paramètres de publication -->
+                <div class="section">
+                    <div class="section-title">📝 Paramètres de Publication</div>
+                    
+                    <div class="form-group">
+                        <label for="max_ads">Annonces par session</label>
+                        <input type="number" id="max_ads" name="max_ads" value="3" min="1" max="10">
+                        <small>Nombre maximum d'annonces à publier à chaque fois (recommandé : 3)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="delay_min">Délai minimum (secondes)</label>
+                        <input type="number" id="delay_min" name="delay_min" value="300" min="60" step="60">
+                        <small>Pause minimum entre chaque annonce (300s = 5 minutes)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="delay_max">Délai maximum (secondes)</label>
+                        <input type="number" id="delay_max" name="delay_max" value="600" min="120" step="60">
+                        <small>Pause maximum entre chaque annonce (600s = 10 minutes)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="real_posting" name="real_posting">
+                            <label for="real_posting">Activer la publication réelle (décochez pour mode test)</label>
+                        </div>
+                        <small>⚠️ En mode test, le bot simule la publication sans vraiment publier</small>
+                    </div>
+                </div>
+
+                <!-- Paramètres avancés -->
+                <div class="section">
+                    <div class="section-title">🔧 Paramètres Avancés</div>
+                    
+                    <div class="form-group">
+                        <label for="browser_mode">Mode navigateur</label>
+                        <select id="browser_mode" name="browser_mode">
+                            <option value="minimized" selected>Minimisé (recommandé)</option>
+                            <option value="visible">Visible (debug)</option>
+                            <option value="headless">Headless (risqué)</option>
+                        </select>
+                        <small>Comment afficher le navigateur pendant l'exécution</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="captcha_wait">Temps max captcha (secondes)</label>
+                        <input type="number" id="captcha_wait" name="captcha_wait" value="300" min="60" step="30">
+                        <small>Temps d'attente pour résoudre un captcha manuellement</small>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-save">💾 Enregistrer la Configuration</button>
+                <a href="/" class="btn btn-back">← Retour au tableau de bord</a>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('config-form');
+        const successMessage = document.getElementById('success-message');
+
+        // Charger la configuration actuelle
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                if (response.ok) {
+                    const config = await response.json();
+                    
+                    // Remplir le formulaire
+                    if (config.email) document.getElementById('email').value = config.email;
+                    if (config.sheet_name) document.getElementById('sheet_name').value = config.sheet_name;
+                    if (config.img_folder) document.getElementById('img_folder').value = config.img_folder;
+                    if (config.max_ads) document.getElementById('max_ads').value = config.max_ads;
+                    if (config.delay_min) document.getElementById('delay_min').value = config.delay_min;
+                    if (config.delay_max) document.getElementById('delay_max').value = config.delay_max;
+                    if (config.real_posting) document.getElementById('real_posting').checked = config.real_posting;
+                    if (config.browser_mode) document.getElementById('browser_mode').value = config.browser_mode;
+                    if (config.captcha_wait) document.getElementById('captcha_wait').value = config.captcha_wait;
+                }
+            } catch (error) {
+                console.log('Pas de configuration existante, utilisation des valeurs par défaut');
+            }
+        }
+
+        // Sauvegarder la configuration
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData(form);
+            const config = {
+                email: formData.get('email'),
+                password: formData.get('password'),
+                sheet_name: formData.get('sheet_name'),
+                img_folder: formData.get('img_folder'),
+                max_ads: parseInt(formData.get('max_ads')),
+                delay_min: parseInt(formData.get('delay_min')),
+                delay_max: parseInt(formData.get('delay_max')),
+                real_posting: formData.get('real_posting') === 'on',
+                browser_mode: formData.get('browser_mode'),
+                captcha_wait: parseInt(formData.get('captcha_wait'))
+            };
+
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+
+                if (response.ok) {
+                    successMessage.classList.add('active');
+                    setTimeout(() => {
+                        successMessage.classList.remove('active');
+                    }, 5000);
+                } else {
+                    alert('Erreur lors de la sauvegarde de la configuration');
+                }
+            } catch (error) {
+                alert('Erreur : ' + error.message);
+            }
+        });
+
+        // Charger la config au chargement de la page
+        loadConfig();
+    </script>
+</body>
+</html>
+

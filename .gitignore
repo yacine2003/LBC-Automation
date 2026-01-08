@@ -1,18 +1,119 @@
+# ==================== FICHIERS SENSIBLES ====================
+# NE JAMAIS COMMITER CES FICHIERS !
 
-# Python
+# Identifiants et configuration
+config.env
+.env
+*.env
+!config.env.example
+
+# Clés Google Sheets
+service_account.json
+*service_account*.json
+
+# Session et cookies
+state.json
+*.json.backup
+
+# ==================== DONNÉES UTILISATEUR ====================
+
+# Dossier images
+img/*
+!img/.gitkeep
+
+# Sauvegardes
+backup_test/
+*.backup
+
+# Screenshots de debug
+debug_screenshot_*.png
+test_*.png
+
+# ==================== PYTHON ====================
+
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.env
+.Python
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
 venv/
-.venv/
+ENV/
+env/
+.venv
 
-# Playwright
-test-results/
-playwright-report/
+# ==================== IDE ====================
 
-# Leboncoin Automation Specific
-state.json   # <--- TRES IMPORTANT : Contient vos cookies de session (Equivalent mot de passe)
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# Cursor
+.cursor/
+
+# ==================== SYSTÈME ====================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# ==================== LOGS ====================
+
+# Fichiers de log
 *.log
-screenshots/
+logs/
+
+# ==================== TESTS ====================
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# pytest
+.pytest_cache/
+
+# ==================== DOCUMENTATION TEMPORAIRE ====================
+
+# Fichiers markdown temporaires
+*.md.backup
+*_OLD.md
+*_DRAFT.md
