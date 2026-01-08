@@ -236,17 +236,22 @@ async def websocket_stream(websocket: WebSocket):
                 
                 # Fonction wrapper pour nettoyer après l'exécution
                 async def run_and_notify():
-                    result = await loop.run_in_executor(None, poster.start_process)
-                    print(f"[Bot] Terminé avec résultat : {result}")
-                    
-                    # Nettoyage
-                    manager.bot_instance = None
-                    
-                    # Notifier le frontend
-                    await manager.broadcast({
-                        "type": "bot_stopped",
-                        "result": result
-                    })
+                    result = "ERROR_UNKNOWN"
+                    try:
+                        result = await loop.run_in_executor(None, poster.start_process)
+                        print(f"[Bot] Terminé avec résultat : {result}")
+                    except Exception as e:
+                        print(f"[Bot] Erreur lors de l'exécution : {type(e).__name__}: {e}")
+                        result = f"ERROR_{type(e).__name__}"
+                    finally:
+                        # Nettoyage
+                        manager.bot_instance = None
+                        
+                        # Notifier le frontend
+                        await manager.broadcast({
+                            "type": "bot_stopped",
+                            "result": result
+                        })
                 
                 # Lancer le bot de manière asynchrone
                 asyncio.create_task(run_and_notify())

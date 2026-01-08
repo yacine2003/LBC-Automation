@@ -6,6 +6,7 @@ import os
 import sys
 import base64
 from playwright.sync_api import sync_playwright
+from playwright._impl._errors import TargetClosedError
 
 import gsheet_manager
 from config import (
@@ -992,6 +993,12 @@ class LBCPoster:
             except StopBotException:
                 print("[Bot] ⏹ Arrêt demandé - Fermeture immédiate du navigateur.")
                 result = "STOPPED_BY_USER"
+                
+            except TargetClosedError as e:
+                print("[Browser] ⚠️ Le navigateur a été fermé manuellement.")
+                print("   -> Le bot s'arrête proprement.")
+                self.log("⚠️ Navigateur fermé manuellement - Arrêt du bot", 'warning')
+                result = "BROWSER_CLOSED_MANUALLY"
                 
             finally:
                 print("[Cleanup] Fermeture du navigateur...")
