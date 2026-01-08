@@ -11,7 +11,7 @@ import gsheet_manager
 from config import (
     EMAIL, PASSWORD, LOGIN_URL, POST_AD_URL, COOKIE_FILE,
     MAX_ADS_PER_RUN, DELAY_BETWEEN_ADS_MIN, DELAY_BETWEEN_ADS_MAX,
-    ENABLE_REAL_POSTING, SHEET_NAME
+    ENABLE_REAL_POSTING, SHEET_NAME, IMG_FOLDER
 )
 from captcha_handler import CaptchaHandler
 
@@ -25,6 +25,19 @@ class LBCPoster:
         self.sheet_name = SHEET_NAME
         self.should_stop = False  # Flag for graceful shutdown
         self.ws_callback = ws_callback  # Callback pour WebSocket (optionnel) 
+
+    def send_ws_message(self, message_type, **kwargs):
+        """Envoie un message via WebSocket si le callback est disponible"""
+        if self.ws_callback:
+            try:
+                self.ws_callback({"type": message_type, **kwargs})
+            except Exception as e:
+                pass  # Pas grave si le WebSocket n'est pas disponible
+    
+    def log(self, message, level='info'):
+        """Log un message dans la console et via WebSocket"""
+        print(message)
+        self.send_ws_message('log', message=message, level=level)
 
     def random_sleep(self, min_s=2.0, max_s=5.0):
         """Pause aléatoire avec vérification d'arrêt"""
@@ -178,6 +191,24 @@ class LBCPoster:
         print("=" * 80)
         print(f">>> DÉMARRAGE SESSION - Limite: {MAX_ADS_PER_RUN} annonces par session")
         print("=" * 80)
+        
+        # 🔍 VALIDATION : Vérifier que IMG_FOLDER est configuré
+        if not IMG_FOLDER or IMG_FOLDER.strip() == "":
+            error_msg = (
+                "\n❌ ERREUR DE CONFIGURATION ❌\n"
+                "Le dossier des photos (IMG_FOLDER) n'est pas configuré !\n\n"
+                "👉 Pour configurer :\n"
+                "   1. Ouvrez http://localhost:8000/config-page\n"
+                "   2. Remplissez le champ '📁 Dossier des photos'\n"
+                "   3. Exemple : C:/Photos/LBC ou /Users/VotreNom/Photos\n"
+                "   4. Cliquez sur 'Enregistrer'\n"
+            )
+            print(error_msg)
+            self.log(error_msg, 'error')
+            return "ERROR_CONFIG_IMG_FOLDER_MISSING"
+        
+        print(f"✅ Dossier photos configuré : {IMG_FOLDER}")
+        self.log(f"Dossier photos : {IMG_FOLDER}", 'info')
         
         ads_published = 0
         results = []
@@ -481,11 +512,10 @@ class LBCPoster:
 
                 # --- PHOTOS ---
                 self.random_sleep(2, 3)
-                print("[Form] Gestion des Photos (Dossier 'img')...")
+                print(f"[Form] Gestion des Photos (Dossier '{IMG_FOLDER}')...")
                 photo_str = str(ad_data.get('Photos', '')).strip()
                 
-                # Dossier local des images
-                IMG_FOLDER = "img"
+                # Dossier local des images (importé depuis config.py)
                 if not os.path.exists(IMG_FOLDER):
                     try:
                         os.makedirs(IMG_FOLDER)
@@ -845,99 +875,119 @@ class LBCPoster:
                              page.wait_for_load_state("domcontentloaded")
                     except: pass
                 
-                    # --- VALIDATION FINALE (DÉPÔT) ---
-                    # Cette section doit être dans le bloc if filled:
-                    if filled:
-                        self.random_sleep(3, 5)
-                        print("[Final] Recherche bouton 'Déposer l'annonce'...")
+                # --- VALIDATION FINALE (DÉPÔT) ---
+                # Cette section s'exécute TOUJOURS après la gestion de la ville
+                if filled:
+                    self.random_sleep(3, 5)
+                    print("[Final] Recherche bouton pour validation finale (Continuer/Déposer)...")
+                    
+                    # Attendre que la page soit complètement chargée
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                    except:
+                        page.wait_for_load_state("domcontentloaded")
+                    
+                    # Vérification captcha avant validation finale
+                    captcha_handler = CaptchaHandler()
+                    if not captcha_handler.check_at_key_moments(page, "avant validation finale"):
+                        print("[Final] ❌ Échec résolution captcha avant validation")
+                        result = "CAPTCHA_FAILED_BEFORE_SUBMIT"
+                    else:
+                        # Recherche robuste du bouton final (peut être "Continuer" ou "Déposer l'annonce")
+                        final_btn = None
                         
-                        # Attendre que la page soit complètement chargée
+                        # Stratégie 1 : Chercher "Continuer" d'abord (souvent le cas)
                         try:
-                            page.wait_for_load_state("networkidle", timeout=10000)
+                            final_btn = page.get_by_role("button", name="Continuer").last
+                            if final_btn.is_visible(timeout=3000):
+                                print("   -> Bouton 'Continuer' trouvé pour validation finale.")
+                            else:
+                                final_btn = None
                         except:
-                            page.wait_for_load_state("domcontentloaded")
+                            final_btn = None
                         
-                        # Vérification captcha avant validation finale
-                        captcha_handler = CaptchaHandler()
-                        if not captcha_handler.check_at_key_moments(page, "avant validation finale"):
-                            print("[Final] ❌ Échec résolution captcha avant validation")
-                            result = "CAPTCHA_FAILED_BEFORE_SUBMIT"
-                        else:
-                            # Recherche robuste du bouton "Déposer l'annonce"
-                            deposit_btn = None
-                            
-                            # Stratégie 1 : Par rôle (méthode principale)
+                        # Stratégie 2 : Chercher "Déposer l'annonce"
+                        if not final_btn:
                             try:
-                                deposit_btn = page.get_by_role("button", name="Déposer l'annonce").first
-                                if not deposit_btn.is_visible(timeout=3000):
-                                    deposit_btn = page.get_by_role("button", name="Valider").first
-                                    if not deposit_btn.is_visible(timeout=2000):
-                                        deposit_btn = None
-                            except:
-                                deposit_btn = None
-                            
-                            # Stratégie 2 : Par texte visible (fallback)
-                            if not deposit_btn:
-                                try:
-                                    deposit_btn = page.locator("button").filter(has_text="Déposer").first
-                                    if not deposit_btn.is_visible(timeout=2000):
-                                        deposit_btn = None
-                                except:
-                                    pass
-                            
-                            # Stratégie 3 : Sélecteur générique (dernier recours)
-                            if not deposit_btn:
-                                try:
-                                    # Chercher un bouton avec "déposer" dans le texte (insensible à la casse)
-                                    all_buttons = page.locator("button").all()
-                                    for btn in all_buttons:
-                                        try:
-                                            text = btn.inner_text().lower()
-                                            if "déposer" in text or "publier" in text or "valider" in text:
-                                                if btn.is_visible():
-                                                    deposit_btn = btn
-                                                    break
-                                        except:
-                                            continue
-                                except:
-                                    pass
-                            
-                            if deposit_btn and deposit_btn.is_visible():
-                                print(">>> [READY] Bouton 'Déposer l'annonce' détecté.")
-                                
-                                if ENABLE_REAL_POSTING:
-                                    # MODE PRODUCTION : On publie vraiment
-                                    print(">>> 🚀 PUBLICATION RÉELLE - Clic sur 'Déposer l'annonce'...")
-                                    self.random_sleep(2, 4)  # Hésitation humaine finale
-                                    deposit_btn.click()
-                                    print(">>> ✅ Clic effectué ! Attente de confirmation...")
-                                    self.random_sleep(5, 8)  # Attente traitement
-                                    result = "SUCCESS_PUBLISHED"
+                                final_btn = page.get_by_role("button", name="Déposer l'annonce").first
+                                if final_btn.is_visible(timeout=2000):
+                                    print("   -> Bouton 'Déposer l'annonce' trouvé.")
                                 else:
-                                    # MODE TEST : On simule (pas de vrai clic)
-                                    print(">>> 🧪 MODE TEST - Simulation du clic (ENABLE_REAL_POSTING=False)")
-                                    print(">>> Pour activer la vraie publication, mettez ENABLE_REAL_POSTING=True")
-                                    self.random_sleep(2, 3)  # Simulation réaliste
-                                    result = "SUCCESS_SIMULATED"
-                            else: 
-                                print("   x Bouton 'Déposer l'annonce' introuvable.")
-                                print("   -> Vérification de l'URL actuelle...")
-                                print(f"   -> URL: {page.url}")
-                                print("   -> Tentative de capture d'écran pour debug...")
-                                try:
-                                    screenshot_path = f"debug_screenshot_{int(time.time())}.png"
-                                    page.screenshot(path=screenshot_path)
-                                    print(f"   -> Screenshot sauvegardé: {screenshot_path}")
-                                except Exception as e:
-                                    print(f"   -> Erreur screenshot: {e}")
-                                result = "SUCCESS_NO_BUTTON"
+                                    final_btn = None
+                            except:
+                                final_btn = None
+                        
+                        # Stratégie 3 : Chercher "Valider" ou "Publier"
+                        if not final_btn:
+                            try:
+                                final_btn = page.get_by_role("button", name="Valider").first
+                                if not final_btn.is_visible(timeout=2000):
+                                    final_btn = page.get_by_role("button", name="Publier").first
+                                    if not final_btn.is_visible(timeout=2000):
+                                        final_btn = None
+                            except:
+                                final_btn = None
+                        
+                        # Stratégie 4 : Recherche par texte (fallback)
+                        if not final_btn:
+                            try:
+                                all_buttons = page.locator("button").all()
+                                for btn in all_buttons:
+                                    try:
+                                        text = btn.inner_text().lower()
+                                        if "continuer" in text or "déposer" in text or "publier" in text or "valider" in text:
+                                            if btn.is_visible():
+                                                final_btn = btn
+                                                print(f"   -> Bouton trouvé par recherche générique: '{btn.inner_text()}'")
+                                                break
+                                    except:
+                                        continue
+                            except:
+                                pass
+                        
+                        if final_btn and final_btn.is_visible():
+                            btn_text = ""
+                            try:
+                                btn_text = final_btn.inner_text()
+                            except:
+                                btn_text = "inconnu"
                             
-                            # Pause observation après publication
+                            print(f">>> [READY] Bouton de validation finale détecté: '{btn_text}'")
+                            
+                            if ENABLE_REAL_POSTING:
+                                # MODE PRODUCTION : On publie vraiment
+                                print(f">>> 🚀 PUBLICATION RÉELLE - Clic sur '{btn_text}'...")
+                                self.random_sleep(2, 4)  # Hésitation humaine finale
+                                final_btn.click()
+                                print(">>> ✅ Clic effectué ! Attente de confirmation...")
+                                self.random_sleep(5, 8)  # Attente traitement
+                                result = "SUCCESS_PUBLISHED"
+                            else:
+                                # MODE TEST : On simule (pas de vrai clic)
+                                print(f">>> 🧪 MODE TEST - Simulation du clic sur '{btn_text}' (ENABLE_REAL_POSTING=False)")
+                                print(">>> Pour activer la vraie publication, mettez ENABLE_REAL_POSTING=True")
+                                self.random_sleep(2, 3)  # Simulation réaliste
+                                result = "SUCCESS_SIMULATED"
+                        else: 
+                            print("   x Bouton de validation finale introuvable.")
+                            print("   -> Vérification de l'URL actuelle...")
+                            print(f"   -> URL: {page.url}")
+                            print("   -> Tentative de capture d'écran pour debug...")
+                            try:
+                                screenshot_path = f"debug_screenshot_{int(time.time())}.png"
+                                page.screenshot(path=screenshot_path)
+                                print(f"   -> Screenshot sauvegardé: {screenshot_path}")
+                            except Exception as e:
+                                print(f"   -> Erreur screenshot: {e}")
+                            result = "FAILURE_FINAL_BUTTON_NOT_FOUND"
+                        
+                        # Pause observation après publication
+                        if result.startswith("SUCCESS"):
                             print("[Cleanup] Pause observation (15s)...")
                             self.random_sleep(15, 20)  # Observer le résultat
-                    else:
-                        print(">>> ECHEC : Champ titre introuvable.")
-                        result = "FAILURE_FORM_NOT_FOUND"
+                else:
+                    print(">>> ECHEC : Champ titre introuvable.")
+                    result = "FAILURE_FORM_NOT_FOUND"
                 
             except StopBotException:
                 print("[Bot] ⏹ Arrêt demandé - Fermeture immédiate du navigateur.")

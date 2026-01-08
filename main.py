@@ -43,6 +43,7 @@ class ConfigData(BaseModel):
     email: str
     password: str
     sheet_name: str
+    img_folder: str  # REQUIS - Le client doit le configurer
     max_ads: int = 3
     delay_min: int = 300
     delay_max: int = 600
@@ -61,6 +62,7 @@ async def get_config():
         return {
             "email": "",
             "sheet_name": "LBC-Automation",
+            "img_folder": "",
             "max_ads": 3,
             "delay_min": 300,
             "delay_max": 600,
@@ -84,6 +86,7 @@ async def get_config():
     return {
         "email": config.get("LEBONCOIN_EMAIL", ""),
         "sheet_name": config.get("GOOGLE_SHEET_NAME", "LBC-Automation"),
+        "img_folder": config.get("IMG_FOLDER", ""),
         "max_ads": int(config.get("MAX_ADS_PER_RUN", "3")),
         "delay_min": int(config.get("DELAY_BETWEEN_ADS_MIN", "300")),
         "delay_max": int(config.get("DELAY_BETWEEN_ADS_MAX", "600")),
@@ -110,6 +113,9 @@ LEBONCOIN_PASSWORD={config.password}
 
 # ==================== GOOGLE SHEETS ====================
 GOOGLE_SHEET_NAME={config.sheet_name}
+
+# ==================== DOSSIER PHOTOS ====================
+IMG_FOLDER={config.img_folder}
 
 # ==================== PUBLICATION ====================
 MAX_ADS_PER_RUN={config.max_ads}

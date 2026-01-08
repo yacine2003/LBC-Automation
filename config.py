@@ -52,6 +52,10 @@ PASSWORD = _config.get("LEBONCOIN_PASSWORD") if _config else os.getenv("LEBONCOI
 # ==================== GOOGLE SHEETS ====================
 SHEET_NAME = _config.get("GOOGLE_SHEET_NAME") if _config else os.getenv("GOOGLE_SHEET_NAME", "LBC-Automation")
 
+# ==================== DOSSIER PHOTOS ====================
+# IMPORTANT : Le client DOIT configurer ce chemin via l'interface web
+IMG_FOLDER = _config.get("IMG_FOLDER") if _config else os.getenv("IMG_FOLDER", "")
+
 # ==================== PUBLICATION ====================
 MAX_ADS_PER_RUN = int(_config.get("MAX_ADS_PER_RUN", "3")) if _config else int(os.getenv("MAX_ADS_PER_RUN", "3"))
 DELAY_BETWEEN_ADS_MIN = int(_config.get("DELAY_BETWEEN_ADS_MIN", "300")) if _config else int(os.getenv("DELAY_BETWEEN_ADS_MIN", "300"))
