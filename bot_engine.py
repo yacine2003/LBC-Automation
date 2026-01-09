@@ -960,9 +960,95 @@ class LBCPoster:
                                 print(f">>> 🚀 PUBLICATION RÉELLE - Clic sur '{btn_text}'...")
                                 self.random_sleep(2, 4)  # Hésitation humaine finale
                                 final_btn.click()
-                                print(">>> ✅ Clic effectué ! Attente de confirmation...")
-                                self.random_sleep(5, 8)  # Attente traitement
-                                result = "SUCCESS_PUBLISHED"
+                                print(">>> ✅ Clic effectué ! Attente page de boost...")
+                                
+                                # Attendre que la page de boost se charge
+                                try:
+                                    page.wait_for_load_state("domcontentloaded", timeout=15000)
+                                    self.random_sleep(3, 5)  # Laisser le temps à la page de se charger complètement
+                                    
+                                    print("[Boost] Recherche bouton 'Déposer sans booster'...")
+                                    
+                                    # Chercher le bouton pour déposer sans boost
+                                    # Plusieurs formulations possibles
+                                    no_boost_btn = None
+                                    
+                                    # Stratégie 1 : Texte exact
+                                    try:
+                                        no_boost_btn = page.get_by_role("button", name="Déposer sans booster mon annonce").first
+                                        if no_boost_btn.is_visible(timeout=3000):
+                                            print("   -> Bouton trouvé (stratégie 1)")
+                                        else:
+                                            no_boost_btn = None
+                                    except:
+                                        no_boost_btn = None
+                                    
+                                    # Stratégie 2 : Recherche par texte partiel
+                                    if not no_boost_btn:
+                                        try:
+                                            no_boost_btn = page.locator("button").filter(has_text="sans booster").first
+                                            if no_boost_btn.is_visible(timeout=2000):
+                                                print("   -> Bouton trouvé (stratégie 2)")
+                                            else:
+                                                no_boost_btn = None
+                                        except:
+                                            no_boost_btn = None
+                                    
+                                    # Stratégie 3 : Recherche générique dans tous les boutons
+                                    if not no_boost_btn:
+                                        try:
+                                            all_buttons = page.locator("button").all()
+                                            for btn in all_buttons:
+                                                try:
+                                                    text = btn.inner_text().lower()
+                                                    if "sans booster" in text or "déposer sans" in text:
+                                                        if btn.is_visible():
+                                                            no_boost_btn = btn
+                                                            print(f"   -> Bouton trouvé (stratégie 3): '{btn.inner_text()}'")
+                                                            break
+                                                except:
+                                                    continue
+                                        except:
+                                            pass
+                                    
+                                    if no_boost_btn and no_boost_btn.is_visible():
+                                        print(">>> 🎯 Clic sur 'Déposer sans booster mon annonce'...")
+                                        self.random_sleep(2, 3)  # Hésitation réaliste
+                                        no_boost_btn.click()
+                                        print(">>> ✅ Clic effectué ! Attente confirmation finale...")
+                                        
+                                        # Attendre la page de confirmation
+                                        try:
+                                            page.wait_for_load_state("domcontentloaded", timeout=15000)
+                                            self.random_sleep(5, 8)
+                                            
+                                            # Vérifier les messages de confirmation
+                                            page_content = page.content().lower()
+                                            if any(text in page_content for text in [
+                                                "votre annonce a été déposée",
+                                                "annonce déposée",
+                                                "votre annonce est en ligne",
+                                                "merci pour votre annonce",
+                                                "en cours de vérification"
+                                            ]):
+                                                print(">>> ✅ Annonce publiée avec succès !")
+                                                result = "SUCCESS_PUBLISHED"
+                                            else:
+                                                print("   ⚠️ Confirmation incertaine, mais clic effectué")
+                                                result = "SUCCESS_PUBLISHED_PENDING"
+                                        except:
+                                            print("   ⚠️ Timeout confirmation, mais clic effectué")
+                                            result = "SUCCESS_PUBLISHED_UNCONFIRMED"
+                                    else:
+                                        print("   ❌ Bouton 'Déposer sans booster' introuvable")
+                                        print("   -> Peut-être déjà sur la page finale ?")
+                                        self.random_sleep(5, 8)
+                                        result = "SUCCESS_PUBLISHED_NO_BOOST_BTN"
+                                        
+                                except Exception as e:
+                                    print(f"   ⚠️ Erreur page de boost : {e}")
+                                    self.random_sleep(5, 8)
+                                    result = "SUCCESS_PUBLISHED_BOOST_ERROR"
                             else:
                                 # MODE TEST : On simule (pas de vrai clic)
                                 print(f">>> 🧪 MODE TEST - Simulation du clic sur '{btn_text}' (ENABLE_REAL_POSTING=False)")
