@@ -5,6 +5,7 @@ import random
 import os
 import sys
 import base64
+import hashlib
 from playwright.sync_api import sync_playwright
 from playwright._impl._errors import TargetClosedError
 
@@ -12,7 +13,8 @@ import gsheet_manager
 from config import (
     EMAIL, PASSWORD, LOGIN_URL, POST_AD_URL, COOKIE_FILE,
     MAX_ADS_PER_RUN, DELAY_BETWEEN_ADS_MIN, DELAY_BETWEEN_ADS_MAX,
-    ENABLE_REAL_POSTING, SHEET_NAME, IMG_FOLDER
+    ENABLE_REAL_POSTING, SHEET_NAME, IMG_FOLDER,
+    ACCOUNTS, NUM_ACCOUNTS  # Multi-comptes
 )
 from captcha_handler import CaptchaHandler
 
@@ -21,11 +23,39 @@ class StopBotException(Exception):
     """Exception levée pour arrêter le bot proprement"""
     pass
 
+def get_session_filename(email):
+    """
+    Génère un nom de fichier de session unique basé sur l'email
+    Utilise un hash court pour éviter les conflits tout en restant lisible
+    
+    Args:
+        email (str): Adresse email du compte
+    
+    Returns:
+        str: Nom du fichier de session (ex: state_account_a1b2c3d4.json)
+    """
+    # Créer un hash MD5 de l'email et prendre les 8 premiers caractères
+    email_hash = hashlib.md5(email.lower().encode()).hexdigest()[:8]
+    return f"state_account_{email_hash}.json"
+
 class LBCPoster:
-    def __init__(self, ws_callback=None):
+    def __init__(self, account=None, ws_callback=None):
         self.sheet_name = SHEET_NAME
         self.should_stop = False  # Flag for graceful shutdown
-        self.ws_callback = ws_callback  # Callback pour WebSocket (optionnel) 
+        self.ws_callback = ws_callback  # Callback pour WebSocket (optionnel)
+        
+        # Multi-comptes : Si un compte spécifique est fourni, l'utiliser
+        if account:
+            self.account = account
+            self.email = account["email"]
+            self.password = account["password"]
+            self.account_number = account.get("account_number", 1)
+        else:
+            # Sinon utiliser le premier compte par défaut
+            self.account = ACCOUNTS[0] if ACCOUNTS else None
+            self.email = EMAIL
+            self.password = PASSWORD
+            self.account_number = 1 
 
     def send_ws_message(self, message_type, **kwargs):
         """Envoie un message via WebSocket si le callback est disponible"""
@@ -133,11 +163,11 @@ class LBCPoster:
         self.handle_cookies(page)
 
         # 1. Email
-        print("   -> Email...")
+        print(f"   -> Email ({self.email})...")
         try:
             email_sel = "input[name='email']"
             page.wait_for_selector(email_sel, timeout=5000)
-            self.human_type(page, email_sel, EMAIL, 0.08, 0.25)
+            self.human_type(page, email_sel, self.email, 0.08, 0.25)
         except:
             print("   !!! Email introuvable.")
             return
@@ -161,7 +191,7 @@ class LBCPoster:
         try:
             pass_sel = "input[name='password']"
             page.wait_for_selector(pass_sel, timeout=10000)
-            self.human_type(page, pass_sel, PASSWORD, 0.08, 0.25)
+            self.human_type(page, pass_sel, self.password, 0.08, 0.25)
         except:
             print("   !!! Password introuvable.")
             return
@@ -280,6 +310,187 @@ class LBCPoster:
         
         return f"SESSION_COMPLETE_{ads_published}_ADS"
     
+    def start_multi_account_process(self, streaming_callback=None):
+        """
+        NOUVELLE MÉTHODE : Gère la publication avec rotation entre plusieurs comptes
+        Chaque compte publie MAX_ADS_PER_RUN annonces, puis passe au compte suivant
+        """
+        print("=" * 80)
+        print(f"🎯 DÉMARRAGE SESSION MULTI-COMPTES")
+        print(f"   Comptes configurés : {NUM_ACCOUNTS}")
+        print(f"   Annonces par compte : {MAX_ADS_PER_RUN}")
+        print("=" * 80)
+        
+        # Validation IMG_FOLDER
+        if not IMG_FOLDER or IMG_FOLDER.strip() == "":
+            error_msg = (
+                "\n❌ ERREUR DE CONFIGURATION ❌\n"
+                "Le dossier des photos (IMG_FOLDER) n'est pas configuré !\n\n"
+                "👉 Pour configurer :\n"
+                "   1. Ouvrez http://localhost:8000/config-page\n"
+                "   2. Remplissez le champ '📁 Dossier des photos'\n"
+                "   3. Cliquez sur 'Enregistrer'\n"
+            )
+            print(error_msg)
+            self.log(error_msg, 'error')
+            return "ERROR_CONFIG_IMG_FOLDER_MISSING"
+        
+        print(f"✅ Dossier photos configuré : {IMG_FOLDER}")
+        self.log(f"Dossier photos : {IMG_FOLDER}", 'info')
+        
+        # Connexion au Sheet une seule fois
+        try:
+            sheet = gsheet_manager.connect_to_sheets(self.sheet_name)
+        except Exception as e:
+            print(f"!!! Erreur connexion Sheet: {e}")
+            return f"ERROR_SHEET_{e}"
+        
+        total_published = 0
+        account_stats = {account['email']: 0 for account in ACCOUNTS}  # Stats par compte
+        
+        # Rotation infinie des comptes jusqu'à épuisement des annonces
+        account_index = 0  # Index du compte actuel (0-based)
+        rotation_count = 0  # Compteur de rotations complètes
+        
+        while True:
+            if self.should_stop:
+                print(f"\n[Session] ⏹ Arrêt demandé par l'utilisateur.")
+                break
+            
+            # Vérifier s'il reste des annonces à publier AVANT de commencer
+            ad_data, _ = gsheet_manager.get_next_ad_to_publish(sheet)
+            if not ad_data:
+                print(f"\n>>> ✅ Plus d'annonces à publier ! Arrêt.")
+                break
+            
+            # Sélectionner le compte en rotation
+            current_account = ACCOUNTS[account_index]
+            account_number = account_index + 1
+            
+            # Si on revient au premier compte après avoir utilisé tous les comptes
+            if account_index == 0 and total_published > 0:
+                rotation_count += 1
+                print(f"\n{'=' * 80}")
+                print(f"🔄 ROTATION {rotation_count + 1} - Retour au premier compte")
+                print(f"{'=' * 80}")
+            
+            print("\n" + "=" * 80)
+            print(f"👤 COMPTE {account_number}/{NUM_ACCOUNTS} : {current_account['email']}")
+            if account_stats[current_account['email']] > 0:
+                print(f"   (Déjà publié : {account_stats[current_account['email']]} annonce(s) lors des rotations précédentes)")
+            print("=" * 80)
+            
+            # Créer une instance du poster pour ce compte
+            poster = LBCPoster(account=current_account, ws_callback=self.ws_callback)
+            poster.should_stop = self.should_stop  # Partager le flag d'arrêt
+            
+            # Ce compte publie MAX_ADS_PER_RUN annonces
+            result = poster.start_process_single_account(sheet, streaming_callback)
+            
+            # Compter les annonces publiées
+            if "SUCCESS" in result or "COMPLETE" in result:
+                import re
+                match = re.search(r'(\d+)_ADS', result)
+                if match:
+                    ads_count = int(match.group(1))
+                    total_published += ads_count
+                    account_stats[current_account['email']] += ads_count
+            
+            # Passer au compte suivant (rotation circulaire)
+            account_index = (account_index + 1) % NUM_ACCOUNTS
+            
+            # Vérifier s'il reste des annonces pour le prochain compte
+            ad_data, _ = gsheet_manager.get_next_ad_to_publish(sheet)
+            if not ad_data:
+                print(f"\n>>> ✅ Plus d'annonces à publier ! Arrêt.")
+                break
+            
+            # Délai entre comptes
+            delay = random.uniform(90, 150)  # 1.5-2.5 minutes entre comptes
+            minutes = delay / 60
+            print(f"\n⏳ Pause de {minutes:.1f} minutes avant le prochain compte...")
+            try:
+                self.random_sleep(delay, delay + 30)
+            except StopBotException:
+                print("[Session] ⏹ Arrêt demandé pendant la pause.")
+                break
+        
+        # Résumé final multi-comptes
+        print("\n" + "=" * 80)
+        print(f"🎉 SESSION MULTI-COMPTES TERMINÉE")
+        print(f"   Total annonces publiées : {total_published}")
+        print(f"   Rotations effectuées : {rotation_count + 1}")
+        print("=" * 80)
+        
+        for account_email, count in account_stats.items():
+            if count > 0:
+                print(f"  ✅ {account_email}: {count} annonce(s)")
+        
+        print("=" * 80 + "\n")
+        
+        accounts_used = sum(1 for count in account_stats.values() if count > 0)
+        return f"MULTI_ACCOUNT_COMPLETE_{total_published}_ADS_{accounts_used}_ACCOUNTS"
+    
+    def start_process_single_account(self, sheet, streaming_callback=None):
+        """
+        Version simplifiée pour un seul compte (utilisée dans la rotation multi-comptes)
+        Publie MAX_ADS_PER_RUN annonces pour ce compte uniquement
+        """
+        print(f"📧 Connexion avec : {self.email}")
+        self.log(f"Compte : {self.email}", 'info')
+        
+        ads_published = 0
+        results = []
+        
+        # Boucle de publication pour ce compte
+        while ads_published < MAX_ADS_PER_RUN:
+            if self.should_stop:
+                print("[Session] ⏹ Arrêt demandé.")
+                break
+            
+            # Chercher la prochaine annonce
+            try:
+                ad_data, row_num = gsheet_manager.get_next_ad_to_publish(sheet)
+                if not ad_data:
+                    print(">>> Plus d'annonces disponibles.")
+                    break
+                print(f"\n📝 Annonce {ads_published + 1}/{MAX_ADS_PER_RUN}: {ad_data.get('Titre')}")
+            except Exception as e:
+                print(f"!!! Erreur lecture Sheet: {e}")
+                break
+            
+            # Publier l'annonce
+            result = self.publish_single_ad(ad_data, row_num, sheet, streaming_callback)
+            results.append({"ad": ad_data.get('Titre'), "result": result})
+            
+            # Marquer comme FAIT si succès
+            if result.startswith("SUCCESS"):
+                try:
+                    gsheet_manager.mark_ad_as_published(sheet, row_num)
+                    ads_published += 1
+                    print(f"✅ Publié ! ({ads_published}/{MAX_ADS_PER_RUN})")
+                except Exception as e:
+                    print(f"⚠️ Erreur mise à jour statut: {e}")
+            else:
+                print(f"❌ Échec : {result}")
+                break
+            
+            # Délai entre annonces (sauf pour la dernière)
+            if ads_published < MAX_ADS_PER_RUN:
+                delay = random.uniform(DELAY_BETWEEN_ADS_MIN, DELAY_BETWEEN_ADS_MAX)
+                minutes = delay / 60
+                print(f"\n⏳ Pause de {minutes:.1f} minutes avant la prochaine annonce...")
+                try:
+                    self.random_sleep(delay, delay + 10)
+                except StopBotException:
+                    print("[Session] ⏹ Arrêt demandé pendant la pause.")
+                    break
+        
+        # Résumé pour ce compte
+        print(f"\n>>> Compte {self.email} : {ads_published} annonce(s) publiée(s)")
+        
+        return f"ACCOUNT_COMPLETE_{ads_published}_ADS"
+    
     def publish_single_ad(self, ad_data, row_num, sheet, streaming_callback=None):
         """
         Publie une seule annonce sur LeBonCoin
@@ -293,6 +504,9 @@ class LBCPoster:
         Returns:
             Code de résultat (SUCCESS_*, FAILURE_*, STOPPED_BY_USER)
         """
+        # Générer un nom de fichier de session unique basé sur l'email
+        account_cookie_file = get_session_filename(self.email)
+        
         # 2. Playwright
         with sync_playwright() as p:
             print("[Browser] Launching...")
@@ -307,9 +521,12 @@ class LBCPoster:
                 "permissions": [] # On bloque la géolocalisation pour éviter les popups
             }
 
-            if os.path.exists(COOKIE_FILE):
-                context = browser.new_context(storage_state=COOKIE_FILE, **context_args)
+            # Charger la session spécifique à ce compte
+            if os.path.exists(account_cookie_file):
+                print(f"[Session] Chargement session pour {self.email} ({account_cookie_file})")
+                context = browser.new_context(storage_state=account_cookie_file, **context_args)
             else:
+                print(f"[Session] Nouvelle session pour {self.email}")
                 context = browser.new_context(**context_args)
 
             try:
@@ -366,7 +583,9 @@ class LBCPoster:
                             print("[Login] ❌ Échec résolution captcha après connexion")
                             return "CAPTCHA_FAILED_AFTER_LOGIN"
                         
-                        context.storage_state(path=COOKIE_FILE) # Save session
+                        # Sauvegarder la session spécifique à ce compte
+                        context.storage_state(path=account_cookie_file)
+                        print(f"[Session] Session pour {self.email} sauvegardée dans {account_cookie_file}")
 
                         print("[Nav] Retour Dépôt...")
                         page.wait_for_load_state("domcontentloaded")

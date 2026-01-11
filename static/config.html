@@ -185,6 +185,27 @@
             margin: 0;
             cursor: pointer;
         }
+
+        .account-group {
+            border: 2px solid #e2e8f0;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            background: #f8fafc;
+            transition: all 0.3s ease;
+        }
+
+        .account-group:hover {
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+        }
+
+        .account-group h3 {
+            color: #475569;
+            margin-bottom: 15px;
+            font-size: 16px;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -206,20 +227,18 @@
             </div>
 
             <form id="config-form">
-                <!-- Identifiants LeBonCoin -->
+                <!-- Multi-Comptes LeBonCoin -->
                 <div class="section">
-                    <div class="section-title">🔐 Identifiants LeBonCoin</div>
+                    <div class="section-title">👥 Comptes LeBonCoin</div>
                     
                     <div class="form-group">
-                        <label for="email">Email LeBonCoin *</label>
-                        <input type="email" id="email" name="email" required placeholder="votre_email@example.com">
-                        <small>L'email que vous utilisez pour vous connecter sur leboncoin.fr</small>
+                        <label for="num_accounts">Nombre de comptes à utiliser</label>
+                        <input type="number" id="num_accounts" name="num_accounts" value="1" min="1" max="5">
+                        <small>Le bot utilisera ces comptes en rotation pour publier vos annonces (recommandé : 2-3 comptes)</small>
                     </div>
 
-                    <div class="form-group">
-                        <label for="password">Mot de passe *</label>
-                        <input type="password" id="password" name="password" required placeholder="••••••••">
-                        <small>Votre mot de passe LeBonCoin (stocké localement de façon sécurisée)</small>
+                    <div id="accounts-container">
+                        <!-- Les champs email/password seront générés dynamiquement ici par JavaScript -->
                     </div>
                 </div>
 
@@ -250,50 +269,9 @@
                     <div class="section-title">📝 Paramètres de Publication</div>
                     
                     <div class="form-group">
-                        <label for="max_ads">Annonces par session</label>
+                        <label for="max_ads">Nombre d'annonces à publier par session</label>
                         <input type="number" id="max_ads" name="max_ads" value="3" min="1" max="10">
                         <small>Nombre maximum d'annonces à publier à chaque fois (recommandé : 3)</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="delay_min">Délai minimum (secondes)</label>
-                        <input type="number" id="delay_min" name="delay_min" value="300" min="60" step="60">
-                        <small>Pause minimum entre chaque annonce (300s = 5 minutes)</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="delay_max">Délai maximum (secondes)</label>
-                        <input type="number" id="delay_max" name="delay_max" value="600" min="120" step="60">
-                        <small>Pause maximum entre chaque annonce (600s = 10 minutes)</small>
-                    </div>
-
-                    <div class="form-group">
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="real_posting" name="real_posting">
-                            <label for="real_posting">Activer la publication réelle (décochez pour mode test)</label>
-                        </div>
-                        <small>⚠️ En mode test, le bot simule la publication sans vraiment publier</small>
-                    </div>
-                </div>
-
-                <!-- Paramètres avancés -->
-                <div class="section">
-                    <div class="section-title">🔧 Paramètres Avancés</div>
-                    
-                    <div class="form-group">
-                        <label for="browser_mode">Mode navigateur</label>
-                        <select id="browser_mode" name="browser_mode">
-                            <option value="minimized" selected>Minimisé (recommandé)</option>
-                            <option value="visible">Visible (debug)</option>
-                            <option value="headless">Headless (risqué)</option>
-                        </select>
-                        <small>Comment afficher le navigateur pendant l'exécution</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="captcha_wait">Temps max captcha (secondes)</label>
-                        <input type="number" id="captcha_wait" name="captcha_wait" value="300" min="60" step="30">
-                        <small>Temps d'attente pour résoudre un captcha manuellement</small>
                     </div>
                 </div>
 
@@ -306,6 +284,42 @@
     <script>
         const form = document.getElementById('config-form');
         const successMessage = document.getElementById('success-message');
+        const numAccountsInput = document.getElementById('num_accounts');
+        const accountsContainer = document.getElementById('accounts-container');
+
+        // Générer les champs pour N comptes
+        function generateAccountFields(numAccounts) {
+            accountsContainer.innerHTML = '';
+            
+            for (let i = 1; i <= numAccounts; i++) {
+                const accountDiv = document.createElement('div');
+                accountDiv.className = 'account-group';
+                accountDiv.innerHTML = `
+                    <h3>🔑 Compte ${i}</h3>
+                    
+                    <div class="form-group">
+                        <label for="account_${i}_email">Email *</label>
+                        <input type="email" id="account_${i}_email" name="account_${i}_email" 
+                               required placeholder="compte${i}@example.com">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="account_${i}_password">Mot de passe *</label>
+                        <input type="password" id="account_${i}_password" name="account_${i}_password" 
+                               required placeholder="••••••••">
+                    </div>
+                `;
+                accountsContainer.appendChild(accountDiv);
+            }
+        }
+
+        // Déclencher lors du changement du nombre de comptes
+        numAccountsInput.addEventListener('change', (e) => {
+            const num = parseInt(e.target.value);
+            if (num >= 1 && num <= 5) {
+                generateAccountFields(num);
+            }
+        });
 
         // Charger la configuration actuelle
         async function loadConfig() {
@@ -314,19 +328,32 @@
                 if (response.ok) {
                     const config = await response.json();
                     
-                    // Remplir le formulaire
-                    if (config.email) document.getElementById('email').value = config.email;
+                    // Remplir les champs basiques
                     if (config.sheet_name) document.getElementById('sheet_name').value = config.sheet_name;
                     if (config.img_folder) document.getElementById('img_folder').value = config.img_folder;
                     if (config.max_ads) document.getElementById('max_ads').value = config.max_ads;
-                    if (config.delay_min) document.getElementById('delay_min').value = config.delay_min;
-                    if (config.delay_max) document.getElementById('delay_max').value = config.delay_max;
-                    if (config.real_posting) document.getElementById('real_posting').checked = config.real_posting;
-                    if (config.browser_mode) document.getElementById('browser_mode').value = config.browser_mode;
-                    if (config.captcha_wait) document.getElementById('captcha_wait').value = config.captcha_wait;
+                    
+                    // Charger les comptes
+                    if (config.accounts && config.accounts.length > 0) {
+                        document.getElementById('num_accounts').value = config.accounts.length;
+                        generateAccountFields(config.accounts.length);
+                        
+                        // Remplir les emails (pas les mots de passe pour sécurité)
+                        config.accounts.forEach((account, index) => {
+                            const i = index + 1;
+                            const emailField = document.getElementById(`account_${i}_email`);
+                            if (emailField && account.email) {
+                                emailField.value = account.email;
+                            }
+                        });
+                    } else {
+                        // Par défaut : 1 compte
+                        generateAccountFields(1);
+                    }
                 }
             } catch (error) {
                 console.log('Pas de configuration existante, utilisation des valeurs par défaut');
+                generateAccountFields(1);
             }
         }
 
@@ -335,17 +362,27 @@
             e.preventDefault();
 
             const formData = new FormData(form);
+            const numAccounts = parseInt(formData.get('num_accounts'));
+            
+            // Collecter tous les comptes
+            const accounts = [];
+            for (let i = 1; i <= numAccounts; i++) {
+                const email = formData.get(`account_${i}_email`);
+                const password = formData.get(`account_${i}_password`);
+                
+                if (email && password) {
+                    accounts.push({
+                        email: email,
+                        password: password
+                    });
+                }
+            }
+
             const config = {
-                email: formData.get('email'),
-                password: formData.get('password'),
+                accounts: accounts,
                 sheet_name: formData.get('sheet_name'),
                 img_folder: formData.get('img_folder'),
-                max_ads: parseInt(formData.get('max_ads')),
-                delay_min: parseInt(formData.get('delay_min')),
-                delay_max: parseInt(formData.get('delay_max')),
-                real_posting: formData.get('real_posting') === 'on',
-                browser_mode: formData.get('browser_mode'),
-                captcha_wait: parseInt(formData.get('captcha_wait'))
+                max_ads: parseInt(formData.get('max_ads')) || 3
             };
 
             try {
@@ -358,7 +395,10 @@
                 });
 
                 if (response.ok) {
+                    const result = await response.json();
                     successMessage.classList.add('active');
+                    successMessage.querySelector('p').textContent = 
+                        result.message || 'Configuration sauvegardée avec succès';
                     setTimeout(() => {
                         successMessage.classList.remove('active');
                     }, 5000);
