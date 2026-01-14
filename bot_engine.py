@@ -537,10 +537,21 @@ class LBCPoster:
                 page = context.new_page()
 
             try:
-                # Navigation
+                # Navigation avec timeout augmenté et système de réessai
                 print(f"[Nav] Vers {POST_AD_URL}")
-                page.goto(POST_AD_URL)
-                page.wait_for_load_state("domcontentloaded")
+                max_retries = 2
+                for attempt in range(max_retries):
+                    try:
+                        page.goto(POST_AD_URL, timeout=60000)  # 60 secondes au lieu de 30
+                        page.wait_for_load_state("domcontentloaded")
+                        break  # Succès, on sort de la boucle
+                    except Exception as nav_error:
+                        if attempt < max_retries - 1:
+                            print(f"[Nav] ⚠️ Timeout (tentative {attempt + 1}/{max_retries}), réessai dans 5s...")
+                            self.random_sleep(5, 7)
+                        else:
+                            raise nav_error  # Dernière tentative échouée, on lève l'erreur
+                
                 self.random_sleep(2, 4)
                 self.handle_cookies(page)
                 
@@ -592,7 +603,8 @@ class LBCPoster:
                         self.random_sleep(2, 3)
                     except:
                         print("Could not click login button or login failed. Continuing anyway...")
-                    if "deposer" not in page.url: page.goto(POST_AD_URL)
+                    if "deposer" not in page.url: 
+                        page.goto(POST_AD_URL, timeout=60000)  # 60 secondes
                 
                 # Vérification captcha après navigation
                 captcha_handler = CaptchaHandler()
