@@ -39,10 +39,11 @@ def get_session_filename(email):
     return f"state_account_{email_hash}.json"
 
 class LBCPoster:
-    def __init__(self, account=None, ws_callback=None):
+    def __init__(self, account=None, ws_callback=None, parent_instance=None):
         self.sheet_name = SHEET_NAME
         self.should_stop = False  # Flag for graceful shutdown
         self.ws_callback = ws_callback  # Callback pour WebSocket (optionnel)
+        self.parent_instance = parent_instance  # Référence à l'instance parente pour partager le flag
         
         # Multi-comptes : Si un compte spécifique est fourni, l'utiliser
         if account:
@@ -70,6 +71,14 @@ class LBCPoster:
         print(message)
         self.send_ws_message('log', message=message, level=level)
 
+    def _check_should_stop(self):
+        """Vérifie le flag d'arrêt (instance actuelle ou parente)"""
+        if self.should_stop:
+            return True
+        if self.parent_instance and self.parent_instance.should_stop:
+            return True
+        return False
+    
     def random_sleep(self, min_s=2.0, max_s=5.0):
         """Pause aléatoire avec vérification d'arrêt"""
         duration = random.uniform(min_s, max_s)
@@ -79,7 +88,7 @@ class LBCPoster:
         elapsed = 0
         increment = 0.5  # Vérifie toutes les 0.5s
         while elapsed < duration:
-            if self.should_stop:
+            if self._check_should_stop():
                 print("[Bot] ⏹ Arrêt demandé pendant le sleep.")
                 raise StopBotException()  # Exception personnalisée pour sortir proprement
             time.sleep(min(increment, duration - elapsed))
@@ -97,7 +106,7 @@ class LBCPoster:
     
     def check_stop(self, browser):
         """Vérifie si l'arrêt est demandé et termine proprement si oui"""
-        if self.should_stop:
+        if self._check_should_stop():
             print("[Bot] ⏹ Arrêt demandé par l'utilisateur.")
             try:
                 browser.close()
@@ -253,7 +262,7 @@ class LBCPoster:
         
         # Boucle de publication
         while ads_published < MAX_ADS_PER_RUN:
-            if self.should_stop:
+            if self._check_should_stop():
                 print("[Session] ⏹ Arrêt demandé par l'utilisateur.")
                 break
             
@@ -353,7 +362,7 @@ class LBCPoster:
         rotation_count = 0  # Compteur de rotations complètes
         
         while True:
-            if self.should_stop:
+            if self._check_should_stop():
                 print(f"\n[Session] ⏹ Arrêt demandé par l'utilisateur.")
                 break
             
@@ -380,9 +389,8 @@ class LBCPoster:
                 print(f"   (Déjà publié : {account_stats[current_account['email']]} annonce(s) lors des rotations précédentes)")
             print("=" * 80)
             
-            # Créer une instance du poster pour ce compte
-            poster = LBCPoster(account=current_account, ws_callback=self.ws_callback)
-            poster.should_stop = self.should_stop  # Partager le flag d'arrêt
+            # Créer une instance du poster pour ce compte avec référence à l'instance parente
+            poster = LBCPoster(account=current_account, ws_callback=self.ws_callback, parent_instance=self)
             
             # Ce compte publie MAX_ADS_PER_RUN annonces
             result = poster.start_process_single_account(sheet, streaming_callback)
@@ -444,7 +452,7 @@ class LBCPoster:
         
         # Boucle de publication pour ce compte
         while ads_published < MAX_ADS_PER_RUN:
-            if self.should_stop:
+            if self._check_should_stop():
                 print("[Session] ⏹ Arrêt demandé.")
                 break
             
@@ -454,7 +462,12 @@ class LBCPoster:
                 if not ad_data:
                     print(">>> Plus d'annonces disponibles.")
                     break
-                print(f"\n📝 Annonce {ads_published + 1}/{MAX_ADS_PER_RUN}: {ad_data.get('Titre')}")
+                ad_title = ad_data.get('Titre', 'Sans titre')
+                print(f"\n📝 Annonce {ads_published + 1}/{MAX_ADS_PER_RUN}: {ad_title}")
+                
+                # Notifier le frontend du début de publication
+                self.send_ws_message('ad_start', ad_title=ad_title, ad_number=ads_published + 1)
+                
             except Exception as e:
                 print(f"!!! Erreur lecture Sheet: {e}")
                 break
@@ -469,6 +482,11 @@ class LBCPoster:
                     gsheet_manager.mark_ad_as_published(sheet, row_num)
                     ads_published += 1
                     print(f"✅ Publié ! ({ads_published}/{MAX_ADS_PER_RUN})")
+                    
+                    # Notifier le frontend de la publication réussie
+                    self.send_ws_message('ad_complete', 
+                                        ad_title=ad_data.get('Titre', 'Sans titre'),
+                                        total_published=ads_published)
                 except Exception as e:
                     print(f"⚠️ Erreur mise à jour statut: {e}")
             else:

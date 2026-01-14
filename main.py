@@ -325,7 +325,7 @@ async def websocket_stream(websocket: WebSocket):
                 
                 await websocket.send_json({
                     "type": "status",
-                    "message": "Bot démarré ! (Mode test - pas de streaming pour l'instant)"
+                    "message": "Bot démarré - Connexion au Google Sheet..."
                 })
             
             elif data.get("type") == "stop":

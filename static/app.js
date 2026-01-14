@@ -233,7 +233,7 @@ function updateTimer() {
 // === SESSION MANAGEMENT ===
 function stopSession() {
     stopTimer();
-    botStatus.textContent = 'Bot arrêté';
+    botStatus.textContent = 'Prêt à démarrer';
     statStatus.textContent = 'Terminé';
     statCurrent.textContent = '-';
     
