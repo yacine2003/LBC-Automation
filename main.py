@@ -220,7 +220,7 @@ async def home():
     """Serve the main HTML interface"""
     try:
         index_html_path = BASE_PATH / "static" / "index.html"
-        with open(str(index_html_path), "r") as f:
+        with open(str(index_html_path), "r", encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
         return HTMLResponse("<h1>Interface en cours de création...</h1>")
