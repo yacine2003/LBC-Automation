@@ -11,6 +11,8 @@ import asyncio
 import os
 import glob
 from pathlib import Path
+import importlib
+import sys
 
 app = FastAPI(title="LBC Automation API")
 
@@ -200,9 +202,23 @@ CAPTCHA_MODE={existing_config.get('CAPTCHA_MODE', 'manual')}
     
     print(f"✅ Configuration multi-comptes sauvegardée : {num_accounts} compte(s)")
     
+    # Recharger le module config pour appliquer les changements immédiatement
+    try:
+        import config
+        import bot_engine
+        
+        # Recharger les modules pour prendre en compte la nouvelle config
+        importlib.reload(config)
+        importlib.reload(bot_engine)
+        
+        print(f"✅ Configuration rechargée automatiquement")
+    except Exception as e:
+        print(f"⚠️ Avertissement : Impossible de recharger la config automatiquement ({e})")
+        print(f"   Veuillez relancer le serveur pour appliquer les changements")
+    
     return {
         "status": "success", 
-        "message": f"✅ Configuration sauvegardée : {num_accounts} compte(s) configuré(s)"
+        "message": f"✅ Configuration sauvegardée et rechargée : {num_accounts} compte(s) configuré(s)"
     }
 
 @app.get("/config-page", response_class=HTMLResponse)
