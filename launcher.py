@@ -19,6 +19,21 @@ def get_base_path():
         # Mode script normal
         return Path(__file__).parent
 
+def setup_playwright_path():
+    """Configure le chemin permanent pour les navigateurs Playwright"""
+    # Utiliser un dossier dans AppData pour stocker les navigateurs
+    if os.name == 'nt':  # Windows
+        browsers_path = Path(os.environ.get('LOCALAPPDATA')) / 'LBC_Automation' / 'playwright_browsers'
+    else:  # macOS/Linux
+        browsers_path = Path.home() / '.lbc_automation' / 'playwright_browsers'
+    
+    browsers_path.mkdir(parents=True, exist_ok=True)
+    
+    # Définir la variable d'environnement pour Playwright
+    os.environ['PLAYWRIGHT_BROWSERS_PATH'] = str(browsers_path)
+    
+    return browsers_path
+
 def check_chromium():
     """Vérifie si Chromium est installé, sinon l'installe"""
     try:
@@ -49,27 +64,36 @@ def install_chromium():
     print()
     
     try:
-        # Déterminer le python à utiliser
-        if getattr(sys, 'frozen', False):
-            python_exe = sys.executable
-        else:
-            python_exe = sys.executable
+        # Utiliser l'API Playwright directement pour installer les navigateurs
+        from playwright._impl._driver import compute_driver_executable, get_driver_env
         
-        # Installer Chromium
+        driver_executable = compute_driver_executable()
+        env = get_driver_env()
+        
+        # Ajouter le chemin des navigateurs à l'environnement
+        env.update(os.environ.copy())
+        
         result = subprocess.run(
-            [python_exe, "-m", "playwright", "install", "chromium"],
-            capture_output=False,
+            [str(driver_executable), "install", "chromium"],
+            env=env,
+            capture_output=True,
             text=True
         )
+        
+        print(result.stdout)
         
         if result.returncode == 0:
             print("\n✅ Chromium installé avec succès !")
             return True
         else:
             print(f"\n❌ Erreur lors de l'installation (code {result.returncode})")
+            if result.stderr:
+                print(result.stderr)
             return False
     except Exception as e:
         print(f"\n❌ Erreur : {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def open_browser_delayed():
@@ -87,11 +111,15 @@ def main():
     BASE_PATH = get_base_path()
     os.chdir(BASE_PATH)
     
+    # Configurer le chemin permanent pour Playwright
+    browsers_path = setup_playwright_path()
+    
     # Bannière
     print("\n" + "=" * 60)
     print("🤖 LBC AUTOMATION - Automatisation LeBonCoin")
     print("=" * 60)
     print(f"📁 Dossier d'installation : {BASE_PATH}")
+    print(f"📦 Navigateurs Playwright : {browsers_path}")
     print()
     
     # Vérifier et installer Chromium si nécessaire

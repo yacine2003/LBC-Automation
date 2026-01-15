@@ -35,7 +35,7 @@ python -m PyInstaller --version >nul 2>&1
 if errorlevel 1 (
     echo [!] PyInstaller non installe
     echo [~] Installation de PyInstaller...
-    pip install pyinstaller
+    python -m pip install pyinstaller
 )
 echo [OK] PyInstaller pret
 
@@ -58,7 +58,7 @@ echo   - Console : Visible
 echo   - Nom : LBC_Automation.exe
 echo.
 
-pyinstaller ^
+python -m PyInstaller ^
   --onefile ^
   --name "LBC_Automation" ^
   --add-data "static;static" ^
