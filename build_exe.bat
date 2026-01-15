@@ -69,9 +69,11 @@ python -m PyInstaller ^
   --hidden-import=uvicorn.protocols.http.auto ^
   --hidden-import=uvicorn.protocols.websockets.websockets_impl ^
   --hidden-import=playwright._impl._api_structures ^
+  --hidden-import=playwright._impl._driver ^
   --collect-all fastapi ^
   --collect-all uvicorn ^
   --collect-all playwright ^
+  --collect-binaries playwright ^
   launcher.py
 
 if errorlevel 1 (
