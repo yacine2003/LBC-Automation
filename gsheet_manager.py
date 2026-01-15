@@ -2,13 +2,14 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import sys
+from utils import BASE_PATH
 
 # -------------------- CONFIG --------------------
 SCOPE = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
 ]
-CREDENTIALS_FILE = "service_account.json"
+CREDENTIALS_FILE = str(BASE_PATH / "service_account.json")
 # ------------------------------------------------
 
 def connect_to_sheets(sheet_url_or_name):

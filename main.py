@@ -1,22 +1,22 @@
 
-from fastapi import FastAPI, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
-from fastapi import HTTPException
 from pydantic import BaseModel
 from typing import List
 from bot_engine import LBCPoster, get_session_filename
+from utils import BASE_PATH
 import uvicorn
 import asyncio
-import json
 import os
 import glob
 from pathlib import Path
 
 app = FastAPI(title="LBC Automation API")
 
-# Serve static files (HTML, JS, CSS)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Serve static files (HTML, JS, CSS) - Compatible exe
+static_dir = BASE_PATH / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -60,7 +60,7 @@ class ConfigData(BaseModel):
 @app.get("/api/config")
 async def get_config():
     """Récupère la configuration multi-comptes actuelle (sans les mots de passe)"""
-    config_file = Path("config.env")
+    config_file = BASE_PATH / "config.env"
     
     if not config_file.exists():
         # Retourner les valeurs par défaut avec un compte vide
@@ -117,12 +117,12 @@ async def get_config():
 @app.post("/api/config")
 async def save_config(config: ConfigData):
     """Sauvegarde la configuration multi-comptes dans config.env"""
-    config_file = Path("config.env")
+    config_file = BASE_PATH / "config.env"
     
     # Charger la config existante pour préserver les paramètres avancés
     existing_config = {}
     if config_file.exists():
-        with open(config_file, 'r', encoding='utf-8') as f:
+        with open(str(config_file), 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
@@ -195,7 +195,7 @@ CAPTCHA_MODE={existing_config.get('CAPTCHA_MODE', 'manual')}
 """
     
     # Écrire le fichier
-    with open(config_file, 'w', encoding='utf-8') as f:
+    with open(str(config_file), 'w', encoding='utf-8') as f:
         f.write(content)
     
     print(f"✅ Configuration multi-comptes sauvegardée : {num_accounts} compte(s)")
@@ -209,7 +209,8 @@ CAPTCHA_MODE={existing_config.get('CAPTCHA_MODE', 'manual')}
 async def config_page():
     """Sert la page de configuration"""
     try:
-        with open("static/config.html", "r", encoding='utf-8') as f:
+        config_html_path = BASE_PATH / "static" / "config.html"
+        with open(str(config_html_path), "r", encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Page de configuration introuvable")
@@ -218,39 +219,11 @@ async def config_page():
 async def home():
     """Serve the main HTML interface"""
     try:
-        with open("static/index.html", "r") as f:
+        index_html_path = BASE_PATH / "static" / "index.html"
+        with open(str(index_html_path), "r") as f:
             return f.read()
     except FileNotFoundError:
         return HTMLResponse("<h1>Interface en cours de création...</h1>")
-
-@app.post("/start-posting")
-def start_posting(background_tasks: BackgroundTasks):
-    """
-    Lance le processus de publication en arrière-plan.
-    Retourne immédiatement pour ne pas bloquer le client.
-    """
-    # Guard: prevent multiple instances
-    if manager.bot_instance is not None:
-        return {
-            "status": "already_running",
-            "details": "Le bot est déjà en cours d'exécution."
-        }
-    
-    poster = LBCPoster()
-    manager.bot_instance = poster
-    
-    # On délègue l'exécution à une tâche de fond (BackgroundTasks)
-    # pour que l'API réponde tout de suite "OK"
-    def run_and_cleanup():
-        poster.start_process()
-        manager.bot_instance = None  # Reset after completion
-    
-    background_tasks.add_task(run_and_cleanup) 
-    
-    return {
-        "status": "started", 
-        "details": "L'automatisation a démarré en tâche de fond. Regardez le terminal pour les logs."
-    }
 
 @app.websocket("/ws/stream")
 async def websocket_stream(websocket: WebSocket):
@@ -263,18 +236,11 @@ async def websocket_stream(websocket: WebSocket):
     
     try:
         while True:
-            # Receive messages from frontend (clicks, keyboard events)
+            # Receive messages from frontend
             data = await websocket.receive_json()
             
             # Handle different message types
-            if data.get("type") == "click":
-                # Forward click to bot instance
-                if manager.bot_instance:
-                    x, y = data.get("x"), data.get("y")
-                    # TODO: Inject click into Playwright
-                    print(f"[WebSocket] Click received at ({x}, {y})")
-            
-            elif data.get("type") == "start":
+            if data.get("type") == "start":
                 # Start the bot with streaming
                 print("[WebSocket] Starting bot with streaming...")
                 

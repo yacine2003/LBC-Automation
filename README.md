@@ -230,7 +230,6 @@ Automatisation/
 ├── bot_engine.py              # Moteur d'automatisation Playwright
 ├── main.py                    # Serveur API FastAPI
 ├── config.py                  # Configuration centralisée
-├── config_loader.py           # Chargement config.env
 ├── gsheet_manager.py          # Gestion Google Sheets
 ├── captcha_handler.py         # Gestion des captchas
 ├── config.env.example         # Template de configuration

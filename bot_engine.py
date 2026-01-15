@@ -3,20 +3,19 @@
 import time
 import random
 import os
-import sys
-import base64
 import hashlib
 from playwright.sync_api import sync_playwright
 from playwright._impl._errors import TargetClosedError
 
 import gsheet_manager
 from config import (
-    EMAIL, PASSWORD, LOGIN_URL, POST_AD_URL, COOKIE_FILE,
+    LOGIN_URL, POST_AD_URL,
     MAX_ADS_PER_RUN, DELAY_BETWEEN_ADS_MIN, DELAY_BETWEEN_ADS_MAX,
     ENABLE_REAL_POSTING, SHEET_NAME, IMG_FOLDER,
-    ACCOUNTS, NUM_ACCOUNTS  # Multi-comptes
+    ACCOUNTS, NUM_ACCOUNTS
 )
 from captcha_handler import CaptchaHandler
+from utils import BASE_PATH
 
 # Exception personnalisée pour l'arrêt du bot
 class StopBotException(Exception):
@@ -52,11 +51,18 @@ class LBCPoster:
             self.password = account["password"]
             self.account_number = account.get("account_number", 1)
         else:
-            # Sinon utiliser le premier compte par défaut
-            self.account = ACCOUNTS[0] if ACCOUNTS else None
-            self.email = EMAIL
-            self.password = PASSWORD
-            self.account_number = 1 
+            # Sinon utiliser le premier compte configuré via l'interface web
+            if ACCOUNTS and len(ACCOUNTS) > 0:
+                self.account = ACCOUNTS[0]
+                self.email = ACCOUNTS[0]["email"]
+                self.password = ACCOUNTS[0]["password"]
+                self.account_number = 1
+            else:
+                raise ValueError(
+                    "❌ Aucun compte configuré !\n"
+                    "   Veuillez configurer au moins un compte via l'interface web :\n"
+                    "   http://localhost:8000/config-page"
+                ) 
 
     def send_ws_message(self, message_type, **kwargs):
         """Envoie un message via WebSocket si le callback est disponible"""
@@ -94,16 +100,6 @@ class LBCPoster:
             time.sleep(min(increment, duration - elapsed))
             elapsed += increment
 
-    def capture_screenshot(self, page):
-        """Capture screenshot et encode en base64 pour streaming"""
-        try:
-            screenshot_bytes = page.screenshot()
-            screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
-            return screenshot_base64
-        except Exception as e:
-            print(f"   ! Erreur capture screenshot : {e}")
-            return None
-    
     def check_stop(self, browser):
         """Vérifie si l'arrêt est demandé et termine proprement si oui"""
         if self._check_should_stop():
@@ -522,8 +518,8 @@ class LBCPoster:
         Returns:
             Code de résultat (SUCCESS_*, FAILURE_*, STOPPED_BY_USER)
         """
-        # Générer un nom de fichier de session unique basé sur l'email
-        account_cookie_file = get_session_filename(self.email)
+        # Générer un nom de fichier de session unique basé sur l'email (chemin absolu)
+        account_cookie_file = str(BASE_PATH / get_session_filename(self.email))
         
         # 2. Playwright
         with sync_playwright() as p:
@@ -1310,9 +1306,10 @@ class LBCPoster:
                             print(f"   -> URL: {page.url}")
                             print("   -> Tentative de capture d'écran pour debug...")
                             try:
-                                screenshot_path = f"debug_screenshot_{int(time.time())}.png"
+                                screenshot_filename = f"debug_screenshot_{int(time.time())}.png"
+                                screenshot_path = str(BASE_PATH / screenshot_filename)
                                 page.screenshot(path=screenshot_path)
-                                print(f"   -> Screenshot sauvegardé: {screenshot_path}")
+                                print(f"   -> Screenshot sauvegardé: {screenshot_filename}")
                             except Exception as e:
                                 print(f"   -> Erreur screenshot: {e}")
                             result = "FAILURE_FINAL_BUTTON_NOT_FOUND"
@@ -1344,24 +1341,3 @@ class LBCPoster:
             
             return result
 
-    def download_photos(self, urls):
-        """Télécharge les photos dans un dossier temp et retourne les chemins absolus."""
-        import requests
-        folder = "temp_images"
-        if not os.path.exists(folder): os.makedirs(folder)
-        
-        local_paths = []
-        for i, url in enumerate(urls[:3]): # Max 3 photos pour le test
-            try:
-                print(f"      - Downloading: {url} ...")
-                r = requests.get(url, timeout=10)
-                if r.status_code == 200:
-                    ext = "jpg"
-                    if "png" in url.lower(): ext = "png"
-                    filename = f"{folder}/photo_{i}.{ext}"
-                    with open(filename, 'wb') as f:
-                        f.write(r.content)
-                    local_paths.append(os.path.abspath(filename))
-            except Exception as e:
-                print(f"      x Erreur download {url}: {e}")
-        return local_paths

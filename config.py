@@ -19,18 +19,19 @@ Configuration du Bot LBC Automation
 
 import os
 from pathlib import Path
+from utils import BASE_PATH
 
 # Fonction pour charger la config depuis config.env
 def load_config():
     """Charge la configuration depuis config.env si disponible"""
-    config_file = Path("config.env")
+    config_file = BASE_PATH / "config.env"
     
     if not config_file.exists():
         return None
     
     config = {}
     try:
-        with open(config_file, 'r', encoding='utf-8') as f:
+        with open(str(config_file), 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
@@ -82,10 +83,6 @@ def load_accounts_from_config():
 ACCOUNTS = load_accounts_from_config()
 NUM_ACCOUNTS = len(ACCOUNTS)
 
-# Pour compatibilité avec l'ancien code : utiliser le premier compte par défaut
-EMAIL = ACCOUNTS[0]["email"] if ACCOUNTS else "votre_email@example.com"
-PASSWORD = ACCOUNTS[0]["password"] if ACCOUNTS else "votre_mot_de_passe"
-
 # ==================== GOOGLE SHEETS ====================
 SHEET_NAME = _config.get("GOOGLE_SHEET_NAME") if _config else os.getenv("GOOGLE_SHEET_NAME", "LBC-Automation")
 
@@ -113,9 +110,6 @@ CAPTCHA_MODE = _config.get("CAPTCHA_MODE") if _config else os.getenv("CAPTCHA_MO
 # URLs LeBonCoin
 LOGIN_URL = "https://www.leboncoin.fr/se-connecter"
 POST_AD_URL = "https://www.leboncoin.fr/deposer-une-annonce"
-
-# Fichier de sauvegarde de session
-COOKIE_FILE = "state.json"
 
 # ==================== CONSEILS ====================
 """
