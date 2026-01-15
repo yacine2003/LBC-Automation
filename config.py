@@ -19,18 +19,19 @@ Configuration du Bot LBC Automation
 
 import os
 from pathlib import Path
+from utils import BASE_PATH
 
 # Fonction pour charger la config depuis config.env
 def load_config():
     """Charge la configuration depuis config.env si disponible"""
-    config_file = Path("config.env")
+    config_file = BASE_PATH / "config.env"
     
     if not config_file.exists():
         return None
     
     config = {}
     try:
-        with open(config_file, 'r', encoding='utf-8') as f:
+        with open(str(config_file), 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
@@ -45,9 +46,42 @@ def load_config():
 # Charger depuis config.env ou utiliser les valeurs par défaut
 _config = load_config()
 
-# ==================== COMPTE LEBONCOIN ====================
-EMAIL = _config.get("LEBONCOIN_EMAIL") if _config else os.getenv("LEBONCOIN_EMAIL", "votre_email@example.com")
-PASSWORD = _config.get("LEBONCOIN_PASSWORD") if _config else os.getenv("LEBONCOIN_PASSWORD", "votre_mot_de_passe")
+# ==================== FONCTION CHARGEMENT MULTI-COMPTES ====================
+def load_accounts_from_config():
+    """Charge tous les comptes depuis config.env"""
+    if not _config:
+        return [{"email": "votre_email@example.com", "password": "votre_mot_de_passe", "account_number": 1}]
+    
+    num_accounts = int(_config.get("NUM_ACCOUNTS", "1"))
+    accounts = []
+    
+    for i in range(1, num_accounts + 1):
+        email = _config.get(f"ACCOUNT_{i}_EMAIL")
+        password = _config.get(f"ACCOUNT_{i}_PASSWORD")
+        
+        if email and password:
+            accounts.append({
+                "email": email,
+                "password": password,
+                "account_number": i
+            })
+    
+    # Si aucun compte multi trouvé, essayer l'ancien format
+    if not accounts:
+        email = _config.get("LEBONCOIN_EMAIL")
+        password = _config.get("LEBONCOIN_PASSWORD")
+        if email and password:
+            accounts.append({
+                "email": email,
+                "password": password,
+                "account_number": 1
+            })
+    
+    return accounts if accounts else [{"email": "votre_email@example.com", "password": "votre_mot_de_passe", "account_number": 1}]
+
+# ==================== COMPTES LEBONCOIN (MULTI-COMPTES) ====================
+ACCOUNTS = load_accounts_from_config()
+NUM_ACCOUNTS = len(ACCOUNTS)
 
 # ==================== GOOGLE SHEETS ====================
 SHEET_NAME = _config.get("GOOGLE_SHEET_NAME") if _config else os.getenv("GOOGLE_SHEET_NAME", "LBC-Automation")
@@ -76,9 +110,6 @@ CAPTCHA_MODE = _config.get("CAPTCHA_MODE") if _config else os.getenv("CAPTCHA_MO
 # URLs LeBonCoin
 LOGIN_URL = "https://www.leboncoin.fr/se-connecter"
 POST_AD_URL = "https://www.leboncoin.fr/deposer-une-annonce"
-
-# Fichier de sauvegarde de session
-COOKIE_FILE = "state.json"
 
 # ==================== CONSEILS ====================
 """

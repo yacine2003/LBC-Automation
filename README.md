@@ -115,6 +115,89 @@ Double-cliquez sur `Lancer_Bot.bat` pour démarrer automatiquement le serveur.
   - `headless` : Invisible (risque de détection élevé)
 - **Publication réelle** : Activer uniquement quand vous êtes prêt !
 
+## 👥 Multi-Comptes & Gestion des Sessions
+
+Le bot supporte la **rotation automatique entre plusieurs comptes LeBonCoin** pour maximiser le volume de publications.
+
+### Configuration Multi-Comptes
+
+1. Ouvrir `http://localhost:8000/config-page`
+2. Définir le "Nombre de comptes à utiliser" (1-5)
+3. Remplir les identifiants pour chaque compte
+4. Définir le nombre d'annonces par session (ex: 3)
+5. Enregistrer
+
+### Fonctionnement de la Rotation
+
+**Exemple avec 3 comptes et 2 annonces/session :**
+```
+┌─ Session 1
+│  ├─ Compte 1 → Publie annonce #1 ✅
+│  └─ Compte 1 → Publie annonce #2 ✅
+├─ Session 2
+│  ├─ Compte 2 → Publie annonce #3 ✅
+│  └─ Compte 2 → Publie annonce #4 ✅
+├─ Session 3
+│  ├─ Compte 3 → Publie annonce #5 ✅
+│  └─ Compte 3 → Publie annonce #6 ✅
+└─ Rotation continue jusqu'à épuisement des annonces "A_FAIRE"
+```
+
+### Gestion Automatique des Sessions
+
+Le bot crée **automatiquement** un fichier de session unique pour chaque compte, basé sur son **email** :
+
+```
+state_account_e2c7c1f6.json → Session de compte1@example.com
+state_account_40e966db.json → Session de compte2@example.com
+state_account_c8f46988.json → Session de compte3@example.com
+```
+
+**Le nom du fichier est un hash MD5 de l'email**, garantissant :
+- 🔐 **Unicité** : Chaque email génère un nom de fichier unique
+- 🔄 **Persistance** : Changer l'ordre des comptes ne change pas les sessions
+- ✅ **Retrouvabilité** : Chaque compte retrouve automatiquement sa session
+
+**Avantages :**
+- ✅ **Reconnexion automatique** : Plus besoin de se reconnecter à chaque fois
+- ✅ **Isolation complète** : Chaque compte garde sa propre session séparée
+- ✅ **Gestion intelligente** : Les fichiers sont créés/supprimés automatiquement
+- ✅ **Indépendant de l'ordre** : Vous pouvez réorganiser vos comptes sans perdre les sessions
+
+**Exemple de Réorganisation :**
+```
+Configuration 1 (3 comptes) :
+├─ compte1@test.com → state_account_e2c7c1f6.json ✅
+├─ compte2@test.com → state_account_40e966db.json ✅
+└─ compte3@test.com → state_account_c8f46988.json ✅
+
+Configuration 2 (ordre différent) :
+├─ compte3@test.com → retrouve state_account_c8f46988.json ✅
+├─ compte1@test.com → retrouve state_account_e2c7c1f6.json ✅
+└─ compte2@test.com → retrouve state_account_40e966db.json ✅
+```
+
+**Nettoyage Automatique :**
+- Lorsque vous **supprimez un compte**, sa session est **automatiquement supprimée**
+- Seuls les fichiers de session des emails **non configurés** sont supprimés
+- Exemple : Supprimer `compte3@test.com` → `state_account_c8f46988.json` est supprimé
+
+**Nettoyage Manuel (si nécessaire) :**
+```bash
+# Supprimer toutes les sessions (forcer reconnexion pour tous les comptes)
+rm state_account_*.json
+
+# Ou supprimer une session spécifique (trouver le fichier dans le dossier)
+# Les noms sont au format : state_account_<hash>.json
+# Exemple : state_account_e2c7c1f6.json
+```
+
+**⚠️ Important :**
+- Ne partagez **JAMAIS** ces fichiers (contiennent vos sessions actives)
+- Si un compte a des problèmes de connexion, supprimez toutes les sessions avec `rm state_account_*.json`
+- Les fichiers sont automatiquement ignorés par Git (`.gitignore`)
+- Les noms de fichiers sont des hashs MD5 : même email = même nom de fichier
+
 ## 🛡️ Sécurité & Anti-Ban
 
 Le bot intègre plusieurs protections :
@@ -147,7 +230,6 @@ Automatisation/
 ├── bot_engine.py              # Moteur d'automatisation Playwright
 ├── main.py                    # Serveur API FastAPI
 ├── config.py                  # Configuration centralisée
-├── config_loader.py           # Chargement config.env
 ├── gsheet_manager.py          # Gestion Google Sheets
 ├── captcha_handler.py         # Gestion des captchas
 ├── config.env.example         # Template de configuration
@@ -168,7 +250,8 @@ Automatisation/
 ⚠️ Fichiers NON versionnés (dans .gitignore) :
 ├── config.env                # Configuration personnelle
 ├── service_account.json      # Clés API Google
-├── state.json                # Session/cookies sauvegardés
+├── state.json                # Session générale (deprecated)
+├── state_account_*.json      # Sessions multi-comptes (hash_email.json)
 └── img/*                     # Vos photos
 ```
 

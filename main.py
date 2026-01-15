@@ -1,20 +1,22 @@
 
-from fastapi import FastAPI, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
-from fastapi import HTTPException
 from pydantic import BaseModel
-from bot_engine import LBCPoster
+from typing import List
+from bot_engine import LBCPoster, get_session_filename
+from utils import BASE_PATH
 import uvicorn
 import asyncio
-import json
 import os
+import glob
 from pathlib import Path
 
 app = FastAPI(title="LBC Automation API")
 
-# Serve static files (HTML, JS, CSS)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Serve static files (HTML, JS, CSS) - Compatible exe
+static_dir = BASE_PATH / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # WebSocket connection manager
 class ConnectionManager:
@@ -39,34 +41,37 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # Modèle de configuration
-class ConfigData(BaseModel):
+class AccountCredentials(BaseModel):
     email: str
     password: str
+
+class ConfigData(BaseModel):
+    accounts: List[AccountCredentials]  # Liste de comptes au lieu d'un seul
     sheet_name: str
     img_folder: str  # REQUIS - Le client doit le configurer
     max_ads: int = 3
-    delay_min: int = 300
-    delay_max: int = 600
-    real_posting: bool = False
+    delay_min: int = 60
+    delay_max: int = 120
+    real_posting: bool = True
     browser_mode: str = "minimized"
     captcha_wait: int = 300
 
 # Endpoints de configuration
 @app.get("/api/config")
 async def get_config():
-    """Récupère la configuration actuelle (sans le mot de passe pour sécurité)"""
-    config_file = Path("config.env")
+    """Récupère la configuration multi-comptes actuelle (sans les mots de passe)"""
+    config_file = BASE_PATH / "config.env"
     
     if not config_file.exists():
-        # Retourner les valeurs par défaut
+        # Retourner les valeurs par défaut avec un compte vide
         return {
-            "email": "",
+            "accounts": [{"email": ""}],
             "sheet_name": "LBC-Automation",
             "img_folder": "",
             "max_ads": 3,
-            "delay_min": 300,
-            "delay_max": 600,
-            "real_posting": False,
+            "delay_min": 60,
+            "delay_max": 120,
+            "real_posting": True,
             "browser_mode": "minimized",
             "captcha_wait": 300
         }
@@ -82,34 +87,92 @@ async def get_config():
                 value = value.strip().strip('"').strip("'")
                 config[key] = value
     
-    # Retourner la config (sans le mot de passe)
+    # Charger tous les comptes
+    num_accounts = int(config.get("NUM_ACCOUNTS", "1"))
+    accounts = []
+    for i in range(1, num_accounts + 1):
+        email = config.get(f"ACCOUNT_{i}_EMAIL", "")
+        if email:
+            accounts.append({"email": email})  # Ne pas retourner les mots de passe
+    
+    # Si aucun compte multi, essayer l'ancien format
+    if not accounts:
+        email = config.get("LEBONCOIN_EMAIL", "")
+        if email:
+            accounts.append({"email": email})
+    
+    # Retourner la config
     return {
-        "email": config.get("LEBONCOIN_EMAIL", ""),
+        "accounts": accounts if accounts else [{"email": ""}],
         "sheet_name": config.get("GOOGLE_SHEET_NAME", "LBC-Automation"),
         "img_folder": config.get("IMG_FOLDER", ""),
         "max_ads": int(config.get("MAX_ADS_PER_RUN", "3")),
-        "delay_min": int(config.get("DELAY_BETWEEN_ADS_MIN", "300")),
-        "delay_max": int(config.get("DELAY_BETWEEN_ADS_MAX", "600")),
-        "real_posting": config.get("ENABLE_REAL_POSTING", "false").lower() == "true",
+        "delay_min": int(config.get("DELAY_BETWEEN_ADS_MIN", "60")),
+        "delay_max": int(config.get("DELAY_BETWEEN_ADS_MAX", "120")),
+        "real_posting": config.get("ENABLE_REAL_POSTING", "true").lower() == "true",
         "browser_mode": config.get("BROWSER_MODE", "minimized"),
         "captcha_wait": int(config.get("CAPTCHA_MAX_WAIT", "300"))
     }
 
 @app.post("/api/config")
 async def save_config(config: ConfigData):
-    """Sauvegarde la configuration dans config.env"""
-    config_file = Path("config.env")
+    """Sauvegarde la configuration multi-comptes dans config.env"""
+    config_file = BASE_PATH / "config.env"
+    
+    # Charger la config existante pour préserver les paramètres avancés
+    existing_config = {}
+    if config_file.exists():
+        with open(str(config_file), 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    existing_config[key.strip()] = value.strip()
+    
+    # Construire la section des comptes
+    num_accounts = len(config.accounts)
+    accounts_section = ""
+    for i, account in enumerate(config.accounts, start=1):
+        accounts_section += f"\n# --- Compte {i} ---\n"
+        accounts_section += f"ACCOUNT_{i}_EMAIL={account.email}\n"
+        accounts_section += f"ACCOUNT_{i}_PASSWORD={account.password}\n"
+    
+    # Nettoyer les anciens fichiers de session pour les comptes supprimés
+    print(f"[Config] Nettoyage des sessions obsolètes (comptes actuels: {num_accounts})")
+    
+    # Créer un ensemble des fichiers de session valides (basés sur les emails configurés)
+    valid_session_files = {get_session_filename(account.email) for account in config.accounts}
+    
+    # Trouver tous les fichiers de session existants
+    existing_session_files = glob.glob("state_account_*.json")
+    cleaned_count = 0
+    
+    for session_file in existing_session_files:
+        # Si ce fichier ne correspond à aucun email configuré, le supprimer
+        if session_file not in valid_session_files:
+            try:
+                print(f"[Config] Suppression session obsolète : {session_file}")
+                os.remove(session_file)
+                cleaned_count += 1
+            except OSError as e:
+                print(f"[Config] Erreur suppression {session_file}: {e}")
+    
+    if cleaned_count > 0:
+        print(f"[Config] ✅ {cleaned_count} fichier(s) de session supprimé(s)")
+    else:
+        print(f"[Config] ✅ Aucun fichier de session à nettoyer")
     
     # Créer le contenu du fichier
     content = f"""# ==================== CONFIGURATION LBC AUTOMATION ====================
 # Fichier généré automatiquement via l'interface web
+# Multi-Comptes : {num_accounts} compte(s) configuré(s)
 # Dernière modification : {asyncio.get_event_loop().time()}
 # ⚠️ NE PARTAGEZ JAMAIS CE FICHIER !
 # ======================================================================
 
-# ==================== IDENTIFIANTS LEBONCOIN ====================
-LEBONCOIN_EMAIL={config.email}
-LEBONCOIN_PASSWORD={config.password}
+# ==================== COMPTES LEBONCOIN ====================
+NUM_ACCOUNTS={num_accounts}
+{accounts_section}
 
 # ==================== GOOGLE SHEETS ====================
 GOOGLE_SHEET_NAME={config.sheet_name}
@@ -119,31 +182,35 @@ IMG_FOLDER={config.img_folder}
 
 # ==================== PUBLICATION ====================
 MAX_ADS_PER_RUN={config.max_ads}
-DELAY_BETWEEN_ADS_MIN={config.delay_min}
-DELAY_BETWEEN_ADS_MAX={config.delay_max}
-ENABLE_REAL_POSTING={'true' if config.real_posting else 'false'}
+DELAY_BETWEEN_ADS_MIN={existing_config.get('DELAY_BETWEEN_ADS_MIN', '60')}
+DELAY_BETWEEN_ADS_MAX={existing_config.get('DELAY_BETWEEN_ADS_MAX', '120')}
+ENABLE_REAL_POSTING={existing_config.get('ENABLE_REAL_POSTING', 'true')}
 
 # ==================== MODE NAVIGATEUR ====================
-BROWSER_MODE={config.browser_mode}
+BROWSER_MODE={existing_config.get('BROWSER_MODE', 'minimized')}
 
 # ==================== CAPTCHA ====================
-CAPTCHA_MAX_WAIT={config.captcha_wait}
-CAPTCHA_MODE=manual
+CAPTCHA_MAX_WAIT={existing_config.get('CAPTCHA_MAX_WAIT', '300')}
+CAPTCHA_MODE={existing_config.get('CAPTCHA_MODE', 'manual')}
 """
     
     # Écrire le fichier
-    with open(config_file, 'w', encoding='utf-8') as f:
+    with open(str(config_file), 'w', encoding='utf-8') as f:
         f.write(content)
     
-    print(f"✅ Configuration sauvegardée dans {config_file}")
+    print(f"✅ Configuration multi-comptes sauvegardée : {num_accounts} compte(s)")
     
-    return {"status": "success", "message": "Configuration sauvegardée avec succès"}
+    return {
+        "status": "success", 
+        "message": f"✅ Configuration sauvegardée : {num_accounts} compte(s) configuré(s)"
+    }
 
 @app.get("/config-page", response_class=HTMLResponse)
 async def config_page():
     """Sert la page de configuration"""
     try:
-        with open("static/config.html", "r", encoding='utf-8') as f:
+        config_html_path = BASE_PATH / "static" / "config.html"
+        with open(str(config_html_path), "r", encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Page de configuration introuvable")
@@ -152,39 +219,11 @@ async def config_page():
 async def home():
     """Serve the main HTML interface"""
     try:
-        with open("static/index.html", "r") as f:
+        index_html_path = BASE_PATH / "static" / "index.html"
+        with open(str(index_html_path), "r") as f:
             return f.read()
     except FileNotFoundError:
         return HTMLResponse("<h1>Interface en cours de création...</h1>")
-
-@app.post("/start-posting")
-def start_posting(background_tasks: BackgroundTasks):
-    """
-    Lance le processus de publication en arrière-plan.
-    Retourne immédiatement pour ne pas bloquer le client.
-    """
-    # Guard: prevent multiple instances
-    if manager.bot_instance is not None:
-        return {
-            "status": "already_running",
-            "details": "Le bot est déjà en cours d'exécution."
-        }
-    
-    poster = LBCPoster()
-    manager.bot_instance = poster
-    
-    # On délègue l'exécution à une tâche de fond (BackgroundTasks)
-    # pour que l'API réponde tout de suite "OK"
-    def run_and_cleanup():
-        poster.start_process()
-        manager.bot_instance = None  # Reset after completion
-    
-    background_tasks.add_task(run_and_cleanup) 
-    
-    return {
-        "status": "started", 
-        "details": "L'automatisation a démarré en tâche de fond. Regardez le terminal pour les logs."
-    }
 
 @app.websocket("/ws/stream")
 async def websocket_stream(websocket: WebSocket):
@@ -197,18 +236,11 @@ async def websocket_stream(websocket: WebSocket):
     
     try:
         while True:
-            # Receive messages from frontend (clicks, keyboard events)
+            # Receive messages from frontend
             data = await websocket.receive_json()
             
             # Handle different message types
-            if data.get("type") == "click":
-                # Forward click to bot instance
-                if manager.bot_instance:
-                    x, y = data.get("x"), data.get("y")
-                    # TODO: Inject click into Playwright
-                    print(f"[WebSocket] Click received at ({x}, {y})")
-            
-            elif data.get("type") == "start":
+            if data.get("type") == "start":
                 # Start the bot with streaming
                 print("[WebSocket] Starting bot with streaming...")
                 
@@ -236,24 +268,30 @@ async def websocket_stream(websocket: WebSocket):
                 
                 # Fonction wrapper pour nettoyer après l'exécution
                 async def run_and_notify():
-                    result = await loop.run_in_executor(None, poster.start_process)
-                    print(f"[Bot] Terminé avec résultat : {result}")
-                    
-                    # Nettoyage
-                    manager.bot_instance = None
-                    
-                    # Notifier le frontend
-                    await manager.broadcast({
-                        "type": "bot_stopped",
-                        "result": result
-                    })
+                    result = "ERROR_UNKNOWN"
+                    try:
+                        # Utiliser la méthode multi-comptes (gère aussi le cas d'un seul compte)
+                        result = await loop.run_in_executor(None, poster.start_multi_account_process)
+                        print(f"[Bot] Terminé avec résultat : {result}")
+                    except Exception as e:
+                        print(f"[Bot] Erreur lors de l'exécution : {type(e).__name__}: {e}")
+                        result = f"ERROR_{type(e).__name__}"
+                    finally:
+                        # Nettoyage
+                        manager.bot_instance = None
+                        
+                        # Notifier le frontend
+                        await manager.broadcast({
+                            "type": "bot_stopped",
+                            "result": result
+                        })
                 
                 # Lancer le bot de manière asynchrone
                 asyncio.create_task(run_and_notify())
                 
                 await websocket.send_json({
                     "type": "status",
-                    "message": "Bot démarré ! (Mode test - pas de streaming pour l'instant)"
+                    "message": "Bot démarré - Connexion au Google Sheet..."
                 })
             
             elif data.get("type") == "stop":

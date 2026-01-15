@@ -13,6 +13,7 @@ service_account.json
 
 # Session et cookies
 state.json
+state_account_*.json
 *.json.backup
 
 # ==================== DONNÉES UTILISATEUR ====================
