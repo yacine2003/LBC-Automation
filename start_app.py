@@ -94,10 +94,15 @@ def main():
         # On doit ajouter le dossier courant au path pour que les imports de main.py fonctionnent
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         
+        # Configurer le logging pour Uvicorn manuellement
+        # Cela évite l'erreur "Unable to configure formatter 'default'" dans l'exe
+        log_config = uvicorn.config.LOGGING_CONFIG
+        log_config["formatters"]["default"]["fmt"] = "%(asctime)s - %(levelname)s - %(message)s"
+        log_config["formatters"]["access"]["fmt"] = "%(asctime)s - %(levelname)s - %(message)s"
+        
         # On lance uvicorn programmatiquement
-        # fast, reload=False car on est en prod/exe
         logging.info(f"Starting server on {url}")
-        uvicorn.run("main:app", host=host, port=port, reload=False, workers=1)
+        uvicorn.run("main:app", host=host, port=port, reload=False, workers=1, log_config=log_config)
         
     except Exception as e:
         logging.critical(f"Server crashed: {e}")
