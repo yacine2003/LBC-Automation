@@ -24,10 +24,19 @@ def build_exe():
     output_name = "LBC_Automation_Bot"
     
     # Clean previous builds
+    # ignore_errors=True permet d'éviter de planter si un fichier est locké (ex: app.log)
     if dist_path.exists():
-        shutil.rmtree(dist_path)
+        try:
+            shutil.rmtree(dist_path)
+        except OSError:
+            print("⚠️ Impossible de supprimer totalement le dossier dist (fichiers verrouillés ?)")
+            print("   On continue quand même la compilation...")
+            
     if build_path.exists():
-        shutil.rmtree(build_path)
+        try:
+            shutil.rmtree(build_path)
+        except OSError:
+            pass
     
     # PyInstaller arguments
     args = [

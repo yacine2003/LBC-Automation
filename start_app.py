@@ -73,6 +73,18 @@ def install_browsers():
     except Exception as e:
         logging.error(f"Failed to install browsers: {e}")
 
+def find_free_port(start_port=8000, max_attempts=10):
+    """Cherche un port libre à partir du start_port"""
+    import socket
+    for port in range(start_port, start_port + max_attempts):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(('127.0.0.1', port))
+                return port
+            except OSError:
+                continue
+    return start_port  # Fallback sur 8000 si échec
+
 def main():
     logging.info("Application starting...")
     
@@ -82,7 +94,9 @@ def main():
     # Pour l'instant on log juste.
     
     host = "127.0.0.1"
-    port = 8000
+    # Port dynamique pour éviter l'erreur "Address already in use"
+    port = find_free_port(8000)
+    
     url = f"http://{host}:{port}"
     
     # Lancer le navigateur dans un thread séparé
@@ -94,11 +108,16 @@ def main():
         # On doit ajouter le dossier courant au path pour que les imports de main.py fonctionnent
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         
-        # FIX: On passe log_config=None pour empêcher Uvicorn de chercher ses fichiers de config par défaut
-        # (ce qui plante dans un .exe). Uvicorn utilisera alors le logging standard qu'on a configuré plus haut.
-        
+        # FIX: Import dynamiques pour éviter les erreurs "Could not import module"
+        try:
+            from main import app
+        except ImportError as e:
+            logging.critical(f"Failed to import main application: {e}")
+            raise e
+
+        # On lance uvicorn programmatiquement en passant l'OBJET app et non la string
         logging.info(f"Starting server on {url}")
-        uvicorn.run("main:app", host=host, port=port, reload=False, workers=1, log_config=None)
+        uvicorn.run(app, host=host, port=port, reload=False, workers=1, log_config=None)
         
     except Exception as e:
         logging.critical(f"Server crashed: {e}")
