@@ -64,14 +64,49 @@ def check_playwright_browsers():
         return False
 
 def install_browsers():
-    """Tente d'installer les navigateurs"""
+    """Tente d'installer les navigateurs (robuste pour version compilée)"""
     logging.info("Attempting to install Playwright browsers...")
+    
+    # Méthode 1: Appel direct au module (fiable pour PyInstaller)
     try:
+        from playwright.__main__ import main
+        import sys
+        
+        logging.info("Method 1: Direct Playwright module call...")
+        # On sauvegarde sys.argv car main() l'utilise
+        old_argv = sys.argv
+        sys.argv = ["playwright", "install", "chromium"]
+        
+        try:
+            main()
+            logging.info("Browsers installed successfully via direct call.")
+            return
+        except SystemExit:
+            # main() peut faire sys.exit(), on l'attrape
+            logging.info("Playwright install finished (SystemExit caught).")
+        finally:
+            sys.argv = old_argv
+            
+    except Exception as e:
+        logging.warning(f"Method 1 failed: {e}")
+
+    # Méthode 2: Subprocess (Fallback)
+    try:
+        logging.info("Method 2: Subprocess call...")
         import subprocess
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-        logging.info("Browsers installed successfully.")
+        # Sur Windows frozen, sys.executable est l'exe lui-même. 
+        # Si ça échoue, on espère que 'playwright' est dans le PATH ou que python est accessible.
+        cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+        subprocess.run(cmd, check=True)
+        logging.info("Browsers installed successfully via subprocess.")
     except Exception as e:
         logging.error(f"Failed to install browsers: {e}")
+        # Dernier espoir : essayer juste 'playwright' si c'est dans le PATH global
+        try:
+            import subprocess
+            subprocess.run(["playwright", "install", "chromium"], check=True)
+        except:
+             pass
 
 def find_free_port(start_port=8000, max_attempts=10):
     """Cherche un port libre à partir du start_port"""
@@ -88,10 +123,13 @@ def find_free_port(start_port=8000, max_attempts=10):
 def main():
     logging.info("Application starting...")
     
-    # Vérification des navigateurs (optionnel, peut être lourd au démarrage)
-    # On le fait uniquement si on n'arrive pas à lancer un browser plus tard, 
-    # mais ici on assume que le user a suivi l'install ou que c'est le premier run.
-    # Pour l'instant on log juste.
+    # Vérification et installation automatique de Chromium
+    logging.info("Checking for Chromium...")
+    if not check_playwright_browsers():
+        logging.info("Chromium not found. Installing...")
+        install_browsers()
+    else:
+        logging.info("Chromium is already installed.")
     
     host = "127.0.0.1"
     # Port dynamique pour éviter l'erreur "Address already in use"

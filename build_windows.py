@@ -60,6 +60,12 @@ def build_exe():
         "--hidden-import=engineio.async_drivers.asgi",
         "--hidden-import=socketio.async_drivers.asgi",
         
+        # Modules importés dynamiquement ou conditionnellement
+        "--hidden-import=playwright",
+        "--hidden-import=playwright.__main__",
+        "--hidden-import=main",
+        "--hidden-import=bot_engine",
+        
         # Exclude unnecessary modules to save space (optional)
         "--exclude-module=tkinter",
         "--exclude-module=matplotlib",
