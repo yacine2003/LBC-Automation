@@ -17,6 +17,17 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+# FIX: Force Playwright to use a persistent path for browsers
+# Otherwise in frozen mode (onefile), it might look in the temp _MEI directory
+if sys.platform == "win32":
+    base_path = os.environ.get("LOCALAPPDATA", os.environ.get("USERPROFILE"))
+    browser_path = os.path.join(base_path, "ms-playwright")
+else:
+    browser_path = os.path.join(os.environ.get("HOME"), ".cache", "ms-playwright")
+
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = browser_path
+logging.info(f"Playwright browsers path forced to: {browser_path}")
+
 # Fonction pour rediriger stdout/stderr vers le logger
 class StreamToLogger(object):
     def __init__(self, logger, log_level=logging.INFO):
@@ -84,6 +95,9 @@ def install_browsers():
         except SystemExit:
             # main() peut faire sys.exit(), on l'attrape
             logging.info("Playwright install finished (SystemExit caught).")
+            # FIX: Si on est arrivé là, c'est que l'install a probablement réussi (ou finie)
+            # On retourne pour éviter de tomber dans la méthode 2 qui cause une boucle infinie
+            return
         finally:
             sys.argv = old_argv
             
@@ -91,6 +105,12 @@ def install_browsers():
         logging.warning(f"Method 1 failed: {e}")
 
     # Méthode 2: Subprocess (Fallback)
+    # FIX: NE PAS executer en mode frozen (exe), car sys.executable est l'application elle-même
+    # et cela crée une boucle infinie de redémarrages.
+    if getattr(sys, 'frozen', False):
+        logging.error("Method 2 (Subprocess) skipped because running in frozen mode.")
+        return
+
     try:
         logging.info("Method 2: Subprocess call...")
         import subprocess
